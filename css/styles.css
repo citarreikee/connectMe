@@ -1,0 +1,568 @@
+:root {
+    --background-primary: #1a1a1a;
+    --background-secondary: #161616;
+    --text-normal: #dcddde;
+    --text-muted: #999;
+    --text-accent: #7b68ee;
+    --interactive-accent: #7b68ee;
+    --background-modifier-border: #333;
+    --background-modifier-form-field: rgba(0, 0, 0, 0.2);
+    --background-modifier-hover: rgba(123, 104, 238, 0.1);
+    --graph-node: #ffffff;
+    --graph-node-company: #ffffff;
+    --graph-line: rgba(255, 255, 255, 0.3);
+    --glow-contact: rgba(255, 255, 255, 0.6);
+    --glow-company: rgba(255, 255, 255, 0.8);
+  }
+  
+body {
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    overflow: hidden;
+    height: 100vh;
+  }
+  
+.app-container {
+    display: flex;
+    height: 100vh;
+  }
+  
+.sidebar {
+width: 300px;
+background-color: var(--background-secondary);
+border-right: 1px solid var(--background-modifier-border);
+display: flex;
+flex-direction: column;
+height: 100%;
+overflow: hidden;
+}
+
+.main-content {
+flex: 1;
+display: flex;
+flex-direction: column;
+height: 100%;
+overflow: hidden;
+}
+
+.sidebar-header {
+padding: 15px;
+border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.sidebar-title {
+font-size: 18px;
+font-weight: 600;
+margin: 0;
+}
+
+.search-container {
+padding: 10px 15px;
+border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.search-input {
+width: 100%;
+background-color: var(--background-modifier-form-field);
+border: 1px solid var(--background-modifier-border);
+color: var(--text-normal);
+border-radius: 4px;
+padding: 8px 12px;
+}
+
+.search-input:focus {
+outline: none;
+border-color: var(--interactive-accent);
+}
+
+.tabs {
+padding: 0 15px;
+border-bottom: 1px solid var(--background-modifier-border);
+display: flex;
+justify-content: space-between;
+}
+
+.tab-group {
+display: flex;
+}
+
+.tab {
+padding: 10px 15px;
+cursor: pointer;
+color: var(--text-muted);
+border-bottom: 2px solid transparent;
+margin-right: 5px;
+}
+
+.tab.active {
+color: var(--text-accent);
+border-bottom-color: var(--interactive-accent);
+}
+
+.add-button {
+position: fixed;
+bottom: 20px;
+left: 20px;
+width: 50px;
+height: 50px;
+border-radius: 50%;
+background-color: var(--interactive-accent);
+color: white;
+display: flex;
+align-items: center;
+justify-content: center;
+cursor: pointer;
+border: none;
+box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+transition: all 0.2s;
+z-index: 100;
+}
+
+.add-button:hover {
+background-color: rgba(123, 104, 238, 0.8);
+transform: scale(1.05);
+}
+
+.add-button i {
+font-size: 24px;
+margin: 0;
+}
+
+.list-container {
+flex: 1;
+overflow-y: auto;
+padding: 10px 15px;
+}
+
+.list-item {
+padding: 8px 10px;
+margin-bottom: 5px;
+border-radius: 4px;
+cursor: pointer;
+transition: background-color 0.2s;
+display: flex;
+align-items: center;
+}
+
+.list-item:hover {
+background-color: var(--background-modifier-hover);
+}
+
+.list-item.active {
+background-color: var(--background-modifier-hover);
+}
+
+.list-item .avatar {
+width: 32px;
+height: 32px;
+border-radius: 50%;
+margin-right: 10px;
+object-fit: cover;
+background-color: var(--background-modifier-border);
+}
+
+.list-item .item-info {
+flex: 1;
+}
+
+.list-item .item-title {
+font-weight: 500;
+margin-bottom: 2px;
+}
+
+.list-item .item-subtitle {
+font-size: 12px;
+color: var(--text-muted);
+}
+
+.graph-container {
+flex: 1;
+position: relative;
+overflow: hidden;
+}
+
+.detail-panel {
+display: none;
+position: absolute;
+top: 15px;
+right: 15px;
+width: 300px;
+max-width: 90%;
+background-color: var(--background-secondary);
+border-radius: 8px;
+box-shadow: 0 2px 20px rgba(0, 0, 0, 0.4);
+z-index: 1000;
+padding: 15px;
+max-height: calc(100% - 30px);
+overflow-y: auto;
+transition: opacity 0.3s ease;
+opacity: 0;
+}
+
+.detail-panel.visible {
+display: block;
+opacity: 1;
+}
+
+.detail-header {
+border-bottom: 1px solid var(--background-modifier-border);
+padding-bottom: 10px;
+margin-bottom: 10px;
+}
+
+.detail-title {
+font-size: 18px;
+font-weight: 600;
+margin: 0 0 5px 0;
+}
+
+.detail-subtitle {
+font-size: 14px;
+color: var(--text-muted);
+margin-top: 0;
+margin-bottom: 15px;
+}
+
+.detail-close {
+position: absolute;
+top: 10px;
+right: 10px;
+cursor: pointer;
+color: var(--text-muted);
+transition: color 0.2s;
+}
+
+.detail-close:hover {
+color: var(--text-normal);
+}
+
+.detail-content {
+margin-bottom: 15px;
+}
+
+.detail-section {
+margin-bottom: 15px;
+}
+
+.detail-section-title {
+font-size: 14px;
+font-weight: 600;
+margin: 0 0 5px 0;
+color: var(--text-accent);
+}
+
+.detail-connections {
+display: flex;
+flex-wrap: wrap;
+gap: 5px;
+}
+
+.connection-tag {
+font-size: 12px;
+background-color: var(--background-modifier-hover);
+padding: 3px 8px;
+border-radius: 4px;
+cursor: pointer;
+}
+
+.connection-tag:hover {
+background-color: var(--interactive-accent);
+color: white;
+}
+
+.toolbar {
+position: absolute;
+bottom: 15px;
+right: 15px;
+z-index: 10;
+display: flex;
+gap: 10px;
+}
+
+.toolbar-button {
+width: 36px;
+height: 36px;
+border-radius: 50%;
+background-color: var(--background-secondary);
+color: var(--text-normal);
+border: 1px solid var(--background-modifier-border);
+display: flex;
+align-items: center;
+justify-content: center;
+cursor: pointer;
+transition: all 0.2s;
+}
+
+.toolbar-button:hover {
+background-color: var(--interactive-accent);
+color: white;
+}
+
+.legend {
+display: none; /* 隐藏图例 */
+}
+
+.legend-item {
+display: none; /* 隐藏图例项 */
+}
+
+.legend-color {
+display: none; /* 隐藏图例颜色标记 */
+}
+
+/* 自定义渲染的Canvas样式 */
+canvas {
+opacity: 0.95;
+}
+
+.detail-avatar {
+width: 80px;
+height: 80px;
+border-radius: 50%;
+margin: 0 auto 15px;
+display: block;
+object-fit: cover;
+background-color: var(--background-modifier-border);
+}
+
+.contact-info {
+margin-bottom: 10px;
+}
+
+.contact-info-item {
+display: flex;
+align-items: center;
+margin-bottom: 5px;
+}
+
+.contact-info-item i {
+width: 20px;
+margin-right: 10px;
+color: var(--text-accent);
+}
+
+/* 添加模态框样式 */
+.modal {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  z-index: 1100;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.modal.visible {
+  display: flex;
+  opacity: 1;
+}
+
+.modal-content {
+background-color: var(--background-secondary);
+border-radius: 8px;
+width: 400px;
+max-width: 90%;
+padding: 20px;
+position: relative;
+}
+
+.modal-close {
+position: absolute;
+top: 10px;
+right: 10px;
+cursor: pointer;
+color: var(--text-muted);
+transition: color 0.2s;
+}
+
+.modal-close:hover {
+color: var(--text-normal);
+}
+
+.modal-title {
+font-size: 18px;
+font-weight: 600;
+margin: 0 0 20px 0;
+padding-bottom: 10px;
+border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.form-group {
+margin-bottom: 15px;
+}
+
+.form-label {
+display: block;
+margin-bottom: 5px;
+font-size: 14px;
+color: var(--text-normal);
+}
+
+.form-control {
+width: 100%;
+background-color: var(--background-modifier-form-field);
+border: 1px solid var(--background-modifier-border);
+color: var(--text-normal);
+border-radius: 4px;
+padding: 8px 12px;
+}
+
+.form-control:focus {
+outline: none;
+border-color: var(--interactive-accent);
+}
+
+.form-select {
+width: 100%;
+background-color: var(--background-modifier-form-field);
+border: 1px solid var(--background-modifier-border);
+color: var(--text-normal);
+border-radius: 4px;
+padding: 8px 12px;
+}
+
+.btn {
+padding: 8px 15px;
+border-radius: 4px;
+border: none;
+cursor: pointer;
+font-size: 14px;
+transition: background-color 0.2s;
+}
+
+.btn-primary {
+background-color: var(--interactive-accent);
+color: white;
+}
+
+.btn-primary:hover {
+background-color: rgba(123, 104, 238, 0.8);
+}
+
+.btn-secondary {
+background-color: var(--background-modifier-border);
+color: var(--text-normal);
+}
+
+.btn-secondary:hover {
+background-color: rgba(51, 51, 51, 0.8);
+}
+
+.modal-footer {
+display: flex;
+justify-content: flex-end;
+gap: 10px;
+margin-top: 20px;
+}
+
+/* 添加模态框内的标签页 */
+.modal-tabs {
+display: flex;
+border-bottom: 1px solid var(--background-modifier-border);
+margin: 0 0 20px 0;
+}
+
+.modal-tab {
+padding: 8px 12px;
+cursor: pointer;
+color: var(--text-muted);
+border-bottom: 2px solid transparent;
+margin-right: 10px;
+}
+
+.modal-tab.active {
+color: var(--text-accent);
+border-bottom-color: var(--interactive-accent);
+}
+
+.modal-title {
+font-size: 20px;
+font-weight: 600;
+margin: 0 0 15px 0;
+padding-bottom: 5px;
+border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* 工作状态选项样式 */
+.work-status-options {
+display: flex;
+flex-direction: row;
+justify-content: space-between;
+gap: 10px;
+margin-bottom: 10px;
+}
+
+.work-status-option {
+flex: 1;
+}
+
+.work-status-input {
+display: none;
+}
+
+.work-status-label {
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+padding: 10px;
+background-color: var(--background-modifier-form-field);
+border: 1px solid var(--background-modifier-border);
+border-radius: 6px;
+cursor: pointer;
+transition: all 0.2s;
+height: 80px;
+}
+
+.work-status-label i {
+font-size: 24px;
+margin-bottom: 8px;
+color: var(--text-muted);
+}
+
+.work-status-label span {
+font-size: 12px;
+text-align: center;
+}
+
+.work-status-input:checked + .work-status-label {
+background-color: var(--background-modifier-hover);
+border-color: var(--interactive-accent);
+}
+
+.work-status-input:checked + .work-status-label i,
+.work-status-input:checked + .work-status-label span {
+color: var(--text-accent);
+}
+
+.work-status-label:hover {
+background-color: var(--background-modifier-hover);
+}
+
+.form-section-title {
+font-size: 16px;
+font-weight: 600;
+color: var(--text-accent);
+margin: 15px 0 10px 0;
+padding-bottom: 5px;
+border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.detail-actions {
+display: flex;
+gap: 8px;
+margin-bottom: 15px;
+}
+
+.detail-actions button {
+font-size: 12px;
+padding: 4px 10px;
+border-radius: 4px;
+}

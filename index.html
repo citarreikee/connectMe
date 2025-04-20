@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>通讯录系统 - 知识图谱</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* 自定义模态框过渡效果 */
+    .modal {
+      transition: opacity 0.3s ease;
+    }
+    
+    /* 改进关联选择的用户体验 */
+    .form-select[multiple] {
+      height: auto;
+      min-height: 100px;
+      background-image: none;
+    }
+    
+    .relation-container {
+      border: 1px solid var(--background-modifier-border);
+      border-radius: 8px;
+      padding: 10px;
+      background-color: rgba(0, 0, 0, 0.1);
+      margin-bottom: 15px;
+    }
+    
+    .selected-tag {
+      display: inline-flex;
+      align-items: center;
+      background-color: var(--background-modifier-hover);
+      border-radius: 16px;
+      padding: 3px 8px;
+      margin: 3px;
+      font-size: 12px;
+    }
+    
+    .selected-tag .remove-tag {
+      margin-left: 5px;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+    
+    .selected-tag .remove-tag:hover {
+      color: #ff4d4f;
+    }
+    
+    .selected-tags-container {
+      display: flex;
+      flex-wrap: wrap;
+      margin-top: 5px;
+      min-height: 30px;
+      border: 1px dashed var(--background-modifier-border);
+      border-radius: 4px;
+      padding: 5px;
+    }
+    
+    /* 空信息的样式 */
+    .empty-info {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      font-style: italic;
+      border: 1px dashed var(--background-modifier-border);
+      border-radius: 4px;
+      margin-top: 5px;
+    }
+    
+    /* 联系方式图标样式优化 */
+    .contact-info-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      padding: 5px 10px;
+      border-radius: 4px;
+      background-color: rgba(0, 0, 0, 0.1);
+      transition: background-color 0.2s;
+    }
+    
+    .contact-info-item:hover {
+      background-color: rgba(123, 104, 238, 0.1);
+    }
+    
+    .contact-info-item i {
+      width: 20px;
+      margin-right: 10px;
+      color: var(--text-accent);
+      text-align: center;
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  <script src="https://cdn.jsdelivr.net/npm/force-graph@1.43.0/dist/force-graph.min.js"></script>
+  
+</head>
+<body>
+  <div class="app-container">
+    <!-- 侧边栏 -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h1 class="sidebar-title">通讯录知识图谱</h1>
+      </div>
+      
+      <div class="search-container">
+        <input type="text" id="searchInput" class="search-input" placeholder="搜索联系人或公司..." />
+      </div>
+      
+      <div class="tabs">
+        <div class="tab-group">
+          <div class="tab active" data-tab="contacts">联系人</div>
+          <div class="tab" data-tab="companies">公司</div>
+          <div class="tab" data-tab="organizations">组织</div>
+        </div>
+      </div>
+      
+      <div class="list-container" id="listContainer">
+        <!-- 列表内容将动态加载 -->
+        <div class="list-loading">加载中...</div>
+      </div>
+    </div>
+    
+    <!-- 主内容区 -->
+    <div class="main-content">
+      <div class="graph-container" id="graphContainer"></div>
+      
+      <!-- 详情面板 -->
+      <div class="detail-panel" id="detailPanel">
+        <div class="detail-close" id="detailClose">
+          <i class="bi bi-x-lg"></i>
+        </div>
+        <div class="detail-header">
+          <h2 class="detail-title" id="detailTitle">联系人详情</h2>
+          <p class="detail-subtitle" id="detailSubtitle"></p>
+          <div class="detail-actions">
+            <button class="btn btn-sm btn-outline-primary" id="editButton">
+              <i class="bi bi-pencil"></i> 编辑
+            </button>
+            <button class="btn btn-sm btn-outline-danger" id="deleteButton">
+              <i class="bi bi-trash"></i> 删除
+            </button>
+          </div>
+        </div>
+        <div class="detail-content" id="detailContent">
+          <!-- 详情内容将动态加载 -->
+        </div>
+      </div>
+      
+      <!-- 工具栏 -->
+      <div class="toolbar">
+        <div class="toolbar-button" id="zoomInButton" title="放大">
+          <i class="bi bi-plus-lg"></i>
+        </div>
+        <div class="toolbar-button" id="zoomOutButton" title="缩小">
+          <i class="bi bi-dash-lg"></i>
+        </div>
+        <div class="toolbar-button" id="resetButton" title="重置视图">
+          <i class="bi bi-arrows-fullscreen"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 添加按钮 - 悬浮在左下角 -->
+  <button class="add-button" id="addButton" title="添加新条目">
+    <i class="bi bi-plus-lg"></i>
+  </button>
+  
+  <!-- 添加模态框 -->
+  <div class="modal" id="addModal">
+    <div class="modal-content">
+      <div class="modal-close" id="modalClose">
+        <i class="bi bi-x-lg"></i>
+      </div>
+      <h3 class="modal-title" id="modalTitle">添加新条目</h3>
+      
+      <!-- 添加标签页选择 -->
+      <div class="modal-tabs">
+        <div class="modal-tab active" data-form="contactForm">添加联系人</div>
+        <div class="modal-tab" data-form="companyForm">添加公司</div>
+        <div class="modal-tab" data-form="organizationForm">添加组织</div>
+      </div>
+      
+      <!-- 联系人表单 -->
+      <div id="contactForm">
+        <div class="form-group">
+          <label class="form-label" for="contactName">姓名</label>
+          <input type="text" id="contactName" class="form-control" placeholder="请输入姓名">
+        </div>
+        
+        <div class="form-group">
+          <h5 class="form-section-title">联系方式</h5>
+        </div>
+        
+        <div class="form-group">
+          <label class="form-label" for="contactPhone">电话</label>
+          <input type="text" id="contactPhone" class="form-control" placeholder="请输入电话号码">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="contactEmail">邮箱</label>
+          <input type="email" id="contactEmail" class="form-control" placeholder="请输入邮箱地址">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="contactWechat">微信号</label>
+          <input type="text" id="contactWechat" class="form-control" placeholder="请输入微信号">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="contactAvatar">头像</label>
+          <input type="file" id="contactAvatar" class="form-control" accept="image/*">
+          <div class="avatar-preview mt-2" id="avatarPreview" style="width: 64px; height: 64px; border-radius: 50%; background-color: var(--background-modifier-border); overflow: hidden; display: none;">
+            <img id="previewImage" src="" style="width: 100%; height: 100%; object-fit: cover;">
+          </div>
+        </div>
+        <div class="form-group">
+          <h5 class="form-section-title">关联信息</h5>
+          
+          <!-- 改进的公司选择 -->
+          <div class="relation-container">
+            <label class="form-label" for="contactCompanies">所属公司</label>
+            <select id="contactCompanies" class="form-select" multiple size="3">
+              <!-- 公司选项将动态加载 -->
+            </select>
+            <div class="selected-tags-container" id="selectedCompanies">
+              <!-- 已选择的公司标签将在这里显示 -->
+            </div>
+            <small class="form-text text-muted">选择后将显示在上方区域，点击标签右侧×可移除</small>
+          </div>
+          
+          <!-- 改进的组织选择 -->
+          <div class="relation-container">
+            <label class="form-label" for="contactOrganizations">所属组织</label>
+            <select id="contactOrganizations" class="form-select" multiple size="3">
+              <!-- 组织选项将动态加载 -->
+            </select>
+            <div class="selected-tags-container" id="selectedOrganizations">
+              <!-- 已选择的组织标签将在这里显示 -->
+            </div>
+            <small class="form-text text-muted">选择后将显示在上方区域，点击标签右侧×可移除</small>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="contactProfile">个人简介</label>
+          <textarea id="contactProfile" class="form-control" rows="3" placeholder="请输入个人简介"></textarea>
+        </div>
+      </div>
+      
+      <!-- 公司表单 -->
+      <div id="companyForm" style="display: none;">
+        <div class="form-group">
+          <label class="form-label" for="companyName">公司名称</label>
+          <input type="text" id="companyName" class="form-control" placeholder="请输入公司名称">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="companyDescription">公司简介</label>
+          <textarea id="companyDescription" class="form-control" rows="3" placeholder="请输入公司简介"></textarea>
+        </div>
+        <div class="form-group">
+          <h5 class="form-section-title">所属组织</h5>
+          <div class="relation-container">
+            <label class="form-label" for="companyOrganizations">选择组织</label>
+            <select id="companyOrganizations" class="form-select" multiple size="3">
+              <!-- 组织选项将动态加载 -->
+            </select>
+            <div class="selected-tags-container" id="selectedCompanyOrgs">
+              <!-- 已选择的组织标签将在这里显示 -->
+            </div>
+            <small class="form-text text-muted">选择后将显示在上方区域，点击标签右侧×可移除</small>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 组织表单 -->
+      <div id="organizationForm" style="display: none;">
+        <div class="form-group">
+          <label class="form-label" for="organizationName">组织名称</label>
+          <input type="text" id="organizationName" class="form-control" placeholder="请输入组织名称">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="organizationDescription">组织简介</label>
+          <textarea id="organizationDescription" class="form-control" rows="3" placeholder="请输入组织简介"></textarea>
+        </div>
+      </div>
+      
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modalCancel">取消</button>
+        <button class="btn btn-primary" id="modalSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/script.js"></script>
+</body>
+</html> 
