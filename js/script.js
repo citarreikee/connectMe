@@ -11,6 +11,45 @@ document.addEventListener('DOMContentLoaded', function() {
     // 添加延迟刷新标志，确保状态变化后及时重绘
     let needsRefresh = false;
     
+    // 移动端导航功能
+    function setupMobileNav() {
+      const mobileNavToggle = document.getElementById('mobileNavToggle');
+      const sidebar = document.querySelector('.sidebar');
+      
+      if (mobileNavToggle && sidebar) {
+        mobileNavToggle.addEventListener('click', function() {
+          sidebar.classList.toggle('active');
+          // 如果侧边栏变为可见，添加背景点击事件来关闭它
+          if (sidebar.classList.contains('active')) {
+            setTimeout(() => {
+              document.addEventListener('click', closeSidebarOnClickOutside);
+            }, 10);
+          }
+        });
+      }
+      
+      // 点击侧边栏外部区域关闭侧边栏
+      function closeSidebarOnClickOutside(event) {
+        if (!sidebar.contains(event.target) && event.target !== mobileNavToggle) {
+          sidebar.classList.remove('active');
+          document.removeEventListener('click', closeSidebarOnClickOutside);
+        }
+      }
+      
+      // 监听窗口大小变化，在大屏幕上重置侧边栏状态
+      window.addEventListener('resize', function() {
+        if (window.innerWidth > 767) {
+          sidebar.classList.remove('active');
+          sidebar.style.display = '';
+        }
+      });
+    }
+    
+    // 添加移动端检测
+    function isMobileDevice() {
+      return window.innerWidth <= 767;
+    }
+    
     // 修改刷新方法，确保用正确的方式刷新
     function setupRefreshLoop() {
       setInterval(() => {
@@ -284,6 +323,11 @@ document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('modalTitle').textContent = `编辑${node.type === 'contact' ? '联系人' : node.type === 'company' ? '公司' : '组织'}`;
       
       const modal = document.getElementById('addModal');
+      
+      // 移动端处理：禁止背景滚动
+      if (isMobileDevice()) {
+        document.body.style.overflow = 'hidden';
+      }
       
       // 根据节点类型选择相应的标签页
       const tabSelector = node.type === 'contact' ? '[data-form="contactForm"]' : 
@@ -615,6 +659,11 @@ document.addEventListener('DOMContentLoaded', function() {
       isModalClosing = true;
       const addModal = document.getElementById('addModal');
       
+      // 移动端处理：恢复背景滚动
+      if (isMobileDevice()) {
+        document.body.style.overflow = '';
+      }
+      
       // 添加一个遮罩层防止用户交互
       const overlay = document.createElement('div');
       overlay.style.position = 'fixed';
@@ -739,6 +788,9 @@ document.addEventListener('DOMContentLoaded', function() {
       container.innerHTML = '';
       
       try {
+        // 判断是否为移动设备
+        const isMobile = window.innerWidth <= 767;
+        
         // 在初始化前预处理数据，帮助避免重叠
         // 给每个节点一个初始位置，而不是全部从中心开始
         graphData.nodes.forEach((node, i) => {
@@ -815,16 +867,18 @@ document.addEventListener('DOMContentLoaded', function() {
         graph = ForceGraph()(container)
           .graphData(graphData)
           .backgroundColor('rgb(30, 30, 30)')
-          .nodeRelSize(6)
+          .nodeRelSize(isMobile ? 4 : 6) // 移动端节点稍小
           .nodeVal(node => {
-            if (node.type === 'organization') return 28;
-            if (node.type === 'company') return 14;
-            if (node.type === 'freelancer') return 7;
-            return 7;
+            // 移动端缩小节点尺寸
+            const mobileFactor = isMobile ? 0.7 : 1;
+            if (node.type === 'organization') return 28 * mobileFactor;
+            if (node.type === 'company') return 14 * mobileFactor;
+            if (node.type === 'freelancer') return 7 * mobileFactor;
+            return 7 * mobileFactor;
           })
           // 添加坐标边界约束，防止节点飞得太远
           .d3AlphaDecay(0.02) // 降低衰减速度
-          .d3VelocityDecay(0.3) // 提高阻尼
+          .d3VelocityDecay(isMobile ? 0.4 : 0.3) // 移动端增加阻尼
           .onEngineTick(() => {
             // 添加边界约束，限制最大距离
             const maxDistance = 800; // 最大距离
@@ -1134,15 +1188,38 @@ document.addEventListener('DOMContentLoaded', function() {
           }
         });
         
-        // 2秒后自动调整视图
+        // 针对移动设备调整初始视图缩放
         setTimeout(() => {
           if (graph) {
-            graph.zoomToFit(400, 50);
+            if (isMobile) {
+              // 移动设备上更适合的初始视图
+              graph.zoomToFit(300, 20);
+            } else {
+              graph.zoomToFit(400, 50);
+            }
           }
         }, 2000);
         
         // 启动刷新循环
         setupRefreshLoop();
+        
+        // 针对移动设备优化触摸交互
+        if (isMobile) {
+          // 提高碰撞检测精度，使触摸更容易选中节点
+          graph.d3Force('collision', d3.forceCollide(node => {
+            // 增加碰撞半径，便于触摸选择
+            const touchFactor = 1.5;
+            if (node.type === 'organization') return 40 * touchFactor;
+            if (node.type === 'company') return 20 * touchFactor; 
+            if (node.type === 'no-company-group') return 25 * touchFactor;
+            if (node.type === 'freelancer') return 8 * touchFactor;
+            return 9 * touchFactor;
+          }).strength(1.3).iterations(4));
+          
+          // 增加冷却时间和降低冷却速度，使图谱在移动设备上更稳定
+          graph.cooldownTicks(200)
+              .cooldownTime(6000);
+        }
         
         return true;
       } catch (error) {
@@ -2081,6 +2158,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupSearch();
     setupTabs();
     setupAddButton();
+    setupMobileNav(); // 添加移动端导航初始化
     
     // 全局事件监听器，处理ESC按键关闭模态框
     document.addEventListener('keydown', (event) => {
