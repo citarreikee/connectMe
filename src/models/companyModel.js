@@ -1,79 +1,107 @@
-const { v4: uuidv4 } = require('uuid');
-const { getDataRefs, saveAllData } = require('./contactModel');
+const { getInstance } = require('../services/dataManager');
+
+// 获取数据管理器实例的函数
+function getDataManager() {
+  return getInstance();
+}
+
+// 确保数据管理器已初始化
+async function ensureInitialized() {
+  const dataManager = getDataManager();
+  if (!dataManager.isLoaded) {
+    await dataManager.initialize();
+  }
+}
+
+// 获取数据的辅助函数
+function getCompanies() {
+  return getDataManager().getData('companies');
+}
+
+function getContacts() {
+  return getDataManager().getData('persons');
+}
+
+function getOrganizations() {
+  return getDataManager().getData('organizations');
+}
+
+function getTags() {
+  return getDataManager().getData('tags');
+}
+
+// 获取所有公司
+async function getAllCompanies() {
+  await ensureInitialized();
+  return getCompanies();
+}
+
+// 根据ID获取公司
+async function getCompanyById(id) {
+  await ensureInitialized();
+  return getCompanies().find(company => company.id === id);
+}
+
+// 创建新公司
+async function createCompany(companyData) {
+  await ensureInitialized();
+  const dataManager = getDataManager();
+  const newCompany = {
+    id: dataManager.generateId(),
+    ...companyData,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  
+  dataManager.addItem('companies', newCompany);
+  await dataManager.saveData();
+  return newCompany;
+}
+
+// 更新公司
+async function updateCompany(id, updateData) {
+  await ensureInitialized();
+  const dataManager = getDataManager();
+  const company = getCompanies().find(company => company.id === id);
+  if (!company) {
+    throw new Error('公司不存在');
+  }
+  
+  const updatedCompany = {
+    ...company,
+    ...updateData,
+    updatedAt: new Date().toISOString()
+  };
+  
+  dataManager.updateItem('companies', id, updatedCompany);
+  await dataManager.saveData();
+  return updatedCompany;
+}
+
+// 删除公司
+async function deleteCompany(id) {
+  await ensureInitialized();
+  const dataManager = getDataManager();
+  const company = getCompanies().find(company => company.id === id);
+  if (!company) {
+    throw new Error('公司不存在');
+  }
+  
+  // 使用数据管理器的清理关联数据功能
+  dataManager.cleanupRelatedData('companies', id);
+  dataManager.deleteItem('companies', id);
+  await dataManager.saveData();
+  return company;
+}
 
 // 公司模型
 const Company = {
-  getAll: () => {
-    const { companies } = getDataRefs();
-    return companies;
-  },
-  
-  getById: (id) => {
-    const { companies } = getDataRefs();
-    return companies.find(company => company._id === id);
-  },
-  
-  create: (companyData) => {
-    const { companies } = getDataRefs();
-    
-    const newCompany = {
-      _id: companyData._id || uuidv4(),
-      name: companyData.name,
-      description: companyData.description || '',
-      organizations: companyData.organizations || [],
-      createdAt: new Date().toISOString()
-    };
-    
-    companies.push(newCompany);
-    saveAllData();
-    return newCompany;
-  },
-  
-  update: (id, companyData) => {
-    const { companies } = getDataRefs();
-    const index = companies.findIndex(company => company._id === id);
-    if (index === -1) return null;
-    
-    companies[index] = {
-      ...companies[index],
-      ...companyData,
-      updatedAt: new Date().toISOString()
-    };
-    
-    saveAllData();
-    return companies[index];
-  },
-  
-  delete: (id) => {
-    const { companies, contacts } = getDataRefs();
-    const initialLength = companies.length;
-    
-    // 移除公司
-    const filteredCompanies = companies.filter(company => company._id !== id);
-    
-    if (filteredCompanies.length !== initialLength) {
-      // 删除关联的联系人的公司关系
-      const updatedContacts = contacts.map(contact => {
-        if (contact.companies && contact.companies.length > 0) {
-          return {
-            ...contact,
-            companies: contact.companies.filter(company => company._id !== id)
-          };
-        }
-        return contact;
-      });
-      
-      // 更新引用
-      require('./contactModel').setDataRefs({
-        companies: filteredCompanies,
-        contacts: updatedContacts
-      });
-      
-      saveAllData();
-      return true;
-    }
-    return false;
-  }
+  getAllCompanies,
+  getCompanyById,
+  createCompany,
+  updateCompany,
+  deleteCompany,
+  ensureInitialized
 };
 
-module.exports = { Company }; 
+module.exports = { Company };

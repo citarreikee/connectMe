@@ -1,90 +1,107 @@
-const { v4: uuidv4 } = require('uuid');
-const { getDataRefs, saveAllData } = require('./contactModel');
+const { getInstance } = require('../services/dataManager');
+
+// 获取数据管理器实例的函数
+function getDataManager() {
+  return getInstance();
+}
+
+// 确保数据管理器已初始化
+async function ensureInitialized() {
+  const dataManager = getDataManager();
+  if (!dataManager.isLoaded) {
+    await dataManager.initialize();
+  }
+}
+
+// 获取数据的辅助函数
+function getOrganizations() {
+  return getDataManager().getData('organizations');
+}
+
+function getContacts() {
+  return getDataManager().getData('persons');
+}
+
+function getCompanies() {
+  return getDataManager().getData('companies');
+}
+
+function getTags() {
+  return getDataManager().getData('tags');
+}
+
+// 获取所有组织
+async function getAllOrganizations() {
+  await ensureInitialized();
+  return getOrganizations();
+}
+
+// 根据ID获取组织
+async function getOrganizationById(id) {
+  await ensureInitialized();
+  return getOrganizations().find(org => org.id === id);
+}
+
+// 创建新组织
+async function createOrganization(orgData) {
+  await ensureInitialized();
+  const dataManager = getDataManager();
+  const newOrganization = {
+    id: dataManager.generateId(),
+    ...orgData,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  
+  dataManager.addItem('organizations', newOrganization);
+  await dataManager.saveData();
+  return newOrganization;
+}
+
+// 更新组织
+async function updateOrganization(id, updateData) {
+  await ensureInitialized();
+  const dataManager = getDataManager();
+  const organization = getOrganizations().find(org => org.id === id);
+  if (!organization) {
+    throw new Error('组织不存在');
+  }
+  
+  const updatedOrganization = {
+    ...organization,
+    ...updateData,
+    updatedAt: new Date().toISOString()
+  };
+  
+  dataManager.updateItem('organizations', id, updatedOrganization);
+  await dataManager.saveData();
+  return updatedOrganization;
+}
+
+// 删除组织
+async function deleteOrganization(id) {
+  await ensureInitialized();
+  const dataManager = getDataManager();
+  const organization = getOrganizations().find(org => org.id === id);
+  if (!organization) {
+    throw new Error('组织不存在');
+  }
+  
+  // 使用数据管理器的清理关联数据功能
+  dataManager.cleanupRelatedData('organizations', id);
+  dataManager.deleteItem('organizations', id);
+  await dataManager.saveData();
+  return organization;
+}
 
 // 组织模型
 const Organization = {
-  getAll: () => {
-    const { organizations } = getDataRefs();
-    return organizations;
-  },
-  
-  getById: (id) => {
-    const { organizations } = getDataRefs();
-    return organizations.find(org => org._id === id);
-  },
-  
-  create: (orgData) => {
-    const { organizations } = getDataRefs();
-    
-    const newOrg = {
-      _id: orgData._id || uuidv4(),
-      name: orgData.name,
-      description: orgData.description || '',
-      createdAt: new Date().toISOString()
-    };
-    
-    organizations.push(newOrg);
-    saveAllData();
-    return newOrg;
-  },
-  
-  update: (id, orgData) => {
-    const { organizations } = getDataRefs();
-    const index = organizations.findIndex(org => org._id === id);
-    if (index === -1) return null;
-    
-    organizations[index] = {
-      ...organizations[index],
-      ...orgData,
-      updatedAt: new Date().toISOString()
-    };
-    
-    saveAllData();
-    return organizations[index];
-  },
-  
-  delete: (id) => {
-    const { organizations, contacts, companies } = getDataRefs();
-    const initialLength = organizations.length;
-    
-    // 移除组织
-    const filteredOrganizations = organizations.filter(org => org._id !== id);
-    
-    if (filteredOrganizations.length !== initialLength) {
-      // 从联系人的组织列表中移除该组织
-      const updatedContacts = contacts.map(contact => {
-        if (contact.organizations && contact.organizations.length > 0) {
-          return {
-            ...contact,
-            organizations: contact.organizations.filter(org => org._id !== id)
-          };
-        }
-        return contact;
-      });
-      
-      // 从公司的组织列表中移除该组织
-      const updatedCompanies = companies.map(company => {
-        if (company.organizations && company.organizations.length > 0) {
-          return {
-            ...company,
-            organizations: company.organizations.filter(org => org._id !== id)
-          };
-        }
-        return company;
-      });
-      
-      // 更新引用
-      require('./contactModel').setDataRefs({
-        organizations: filteredOrganizations,
-        contacts: updatedContacts,
-        companies: updatedCompanies
-      });
-      
-      saveAllData();
-      return true;
-    }
-    return false;
-  }
+  getAllOrganizations,
+  getOrganizationById,
+  createOrganization,
+  updateOrganization,
+  deleteOrganization,
+  ensureInitialized
 };
 
-module.exports = { Organization }; 
+module.exports = { Organization };

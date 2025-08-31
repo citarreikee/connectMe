@@ -3,9 +3,9 @@ const { Organization } = require('../models');
 // 组织控制器
 const organizationController = {
   // 获取所有组织
-  getAllOrganizations: (req, res) => {
+  getAllOrganizations: async (req, res) => {
     try {
-      const organizations = Organization.getAll();
+      const organizations = await Organization.getAllOrganizations();
       res.json(organizations);
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -13,9 +13,9 @@ const organizationController = {
   },
 
   // 获取单个组织
-  getOrganizationById: (req, res) => {
+  getOrganizationById: async (req, res) => {
     try {
-      const organization = Organization.getById(req.params.id);
+      const organization = await Organization.getOrganizationById(req.params.id);
       if (!organization) {
         return res.status(404).json({ error: '组织不存在' });
       }
@@ -26,9 +26,9 @@ const organizationController = {
   },
 
   // 创建组织
-  createOrganization: (req, res) => {
+  createOrganization: async (req, res) => {
     try {
-      const newOrganization = Organization.create(req.body);
+      const newOrganization = await Organization.createOrganization(req.body);
       res.status(201).json(newOrganization);
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -36,30 +36,30 @@ const organizationController = {
   },
 
   // 更新组织
-  updateOrganization: (req, res) => {
+  updateOrganization: async (req, res) => {
     try {
-      const updatedOrganization = Organization.update(req.params.id, req.body);
-      if (!updatedOrganization) {
-        return res.status(404).json({ error: '组织不存在' });
-      }
+      const updatedOrganization = await Organization.updateOrganization(req.params.id, req.body);
       res.json(updatedOrganization);
     } catch (error) {
+      if (error.message === '组织不存在') {
+        return res.status(404).json({ error: error.message });
+      }
       res.status(400).json({ error: error.message });
     }
   },
 
   // 删除组织
-  deleteOrganization: (req, res) => {
+  deleteOrganization: async (req, res) => {
     try {
-      const deleted = Organization.delete(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ error: '组织不存在' });
-      }
+      await Organization.deleteOrganization(req.params.id);
       res.json({ message: '组织已删除' });
     } catch (error) {
+      if (error.message === '组织不存在') {
+        return res.status(404).json({ error: error.message });
+      }
       res.status(500).json({ error: error.message });
     }
   }
 };
 
-module.exports = organizationController; 
+module.exports = organizationController;

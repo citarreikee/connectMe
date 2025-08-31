@@ -1,12 +1,71 @@
 document.addEventListener('DOMContentLoaded', function() {
     let contacts = [];
-    let companies = [];
-    let organizations = [];
+    let persons = []; // 新的人员数据结构
+    let tags = []; // 添加标签数据
     let graph = null;
     let currentTab = 'contacts';
     let graphData = { nodes: [], links: [] };
     let selectedNode = null;
     let hoverNode = null; // 添加悬停节点跟踪
+    
+    // 初始化新的头像上传组件
+    let avatarUploader = null;
+    let fileValidator = null;
+    let imageProcessor = null;
+    let securityEnhancer = null;
+    let performanceOptimizer = null;
+    let accessibilityEnhancer = null;
+    
+    // localStorage数据保存和加载函数
+    function saveDataToStorage() {
+        try {
+            const data = {
+                persons: persons,
+                contacts: contacts, // 保持向后兼容
+                tags: tags
+            };
+            localStorage.setItem('connectMeData', JSON.stringify(data));
+            console.log('数据已保存到localStorage');
+        } catch (error) {
+            console.error('保存数据到localStorage失败:', error);
+        }
+    }
+    
+    function loadDataFromStorage() {
+        try {
+            const data = localStorage.getItem('connectMeData');
+            if (data) {
+                const parsedData = JSON.parse(data);
+                // 优先使用新的persons数据，如果没有则使用旧的contacts数据
+                persons = parsedData.persons || parsedData.contacts || [];
+                contacts = persons; // 保持向后兼容
+                tags = parsedData.tags || [];
+                console.log('从localStorage加载数据成功');
+                return true;
+            }
+        } catch (error) {
+            console.error('从localStorage加载数据失败:', error);
+        }
+        return false;
+    }
+    
+    // 清除旧的localStorage数据
+    function clearOldLocalStorageData() {
+        const oldKeys = ['contacts_data', 'tags_data'];
+        let clearedAny = false;
+        
+        oldKeys.forEach(key => {
+            if (localStorage.getItem(key)) {
+                localStorage.removeItem(key);
+                clearedAny = true;
+                console.log(`已清除旧的localStorage数据: ${key}`);
+            }
+        });
+        
+        if (clearedAny) {
+            console.log('已清除所有旧的localStorage数据，将重新加载新数据结构');
+        }
+    }
     
     // 添加延迟刷新标志，确保状态变化后及时重绘
     let needsRefresh = false;
@@ -52,12 +111,19 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 修改刷新方法，确保用正确的方式刷新
     function setupRefreshLoop() {
+      let lastRefreshTime = 0;
+      const refreshThrottle = 200; // 限制刷新频率为200ms
+      
       setInterval(() => {
-        if (needsRefresh && graph) {
-          // 强制重绘所有元素 - 使用可靠的方法
-          const currentData = graph.graphData();
-          graph.graphData(currentData);
-          needsRefresh = false;
+        const now = Date.now();
+        if (needsRefresh && graph && (now - lastRefreshTime) > refreshThrottle) {
+          // 使用requestAnimationFrame优化渲染性能
+          requestAnimationFrame(() => {
+            const currentData = graph.graphData();
+            graph.graphData(currentData);
+            needsRefresh = false;
+            lastRefreshTime = now;
+          });
         }
       }, 100);
     }
@@ -65,6 +131,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // 显示详情面板
     function showDetailPanel(node) {
       console.log("显示详情面板调用成功", node.name);
+      
+      // 调试日志：输出完整的 node 对象信息
+      console.log('=== 调试信息 ===');
+      console.log('完整 node 对象:', node);
+      console.log('node.description:', node.description);
+      console.log('node.profile:', node.profile);
+      console.log('node.type:', node.type);
+      console.log('===============');
       
       const panel = document.getElementById('detailPanel');
       const title = document.getElementById('detailTitle');
@@ -74,114 +148,58 @@ document.addEventListener('DOMContentLoaded', function() {
       // 设置面板标题和内容
       title.textContent = node.name;
       
-      if (node.type === 'company') {
-        subtitle.textContent = '公司';
+      if (node.type === 'tag') { // 处理标签节点
+        subtitle.textContent = '标签';
         
-        // 查找该公司的所有员工
-        const employees = contacts.filter(contact => {
-          return contact.companies && contact.companies.some(c => c._id === node._id);
+        // 查找使用该标签的联系人
+        const taggedContacts = persons.filter(contact => {
+          return contact.tags && contact.tags.some(t => t._id === node._id);
         });
         
-        // 查找公司所属的组织
-        const organizationInfo = node.organizations && node.organizations.length > 0 ? `<div class="detail-section">
-            <div class="detail-section-title">所属组织</div>
-            <div class="detail-connections">
-              ${node.organizations.map(org => `
-                <div class="connection-tag" data-id="${org._id}" data-type="organization">
-                  ${org.name}
-                </div>
-              `).join('')}
-            </div>
-          </div>` : '';
+        // 获取关联标签信息
+        const parentTags = node.parent_tags || [];
+        const childTags = node.child_tags || [];
+        const relatedTags = [...parentTags, ...childTags];
         
         content.innerHTML = `
           <div class="detail-section">
-            <div class="detail-section-title">公司简介</div>
-            ${node.description ? `<p>${node.description}</p>` : `<div class="empty-info"><span class="text-muted">暂无简介</span></div>`}
+            <div class="detail-section-title">标签描述</div>
+            ${node.description ? `<p>${node.description}</p>` : `<div class="empty-info"><span class="text-muted">暂无描述</span></div>`}
           </div>
           
-          ${organizationInfo}
-          
-          <div class="detail-section">
-            <div class="detail-section-title">员工 (${employees.length})</div>
-            <div class="detail-connections">
-              ${employees.map(emp => `
-                <div class="connection-tag" data-id="${emp._id}" data-type="contact">
-                  ${emp.name}
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        `;
-      } else if (node.type === 'organization') {
-        subtitle.textContent = '组织';
-        
-        // 查找该组织的所有成员
-        const members = contacts.filter(contact => {
-          return contact.organizations && contact.organizations.some(o => o._id === node._id);
-        });
-        
-        // 查找该组织的所有公司
-        const affiliatedCompanies = companies.filter(company => {
-          return company.organizations && company.organizations.some(o => o._id === node._id);
-        });
-        
-        content.innerHTML = `
-          <div class="detail-section">
-            <div class="detail-section-title">组织简介</div>
-            ${node.description ? `<p>${node.description}</p>` : `<div class="empty-info"><span class="text-muted">暂无简介</span></div>`}
-          </div>
-          
-          ${affiliatedCompanies.length > 0 ? `
+          ${taggedContacts.length > 0 ? `
             <div class="detail-section">
-              <div class="detail-section-title">成员公司 (${affiliatedCompanies.length})</div>
+              <div class="detail-section-title">关联联系人 (${taggedContacts.length})</div>
               <div class="detail-connections">
-                ${affiliatedCompanies.map(company => `
-                  <div class="connection-tag" data-id="${company._id}" data-type="company">
-                    ${company.name}
+                ${taggedContacts.map(contact => `
+                  <div class="connection-tag" data-id="${contact._id}" data-type="contact">
+                    ${contact.name}
                   </div>
                 `).join('')}
               </div>
             </div>
           ` : ''}
           
-          ${members.length > 0 ? `
+          ${relatedTags.length > 0 ? `
             <div class="detail-section">
-              <div class="detail-section-title">成员 (${members.length})</div>
+              <div class="detail-section-title">关联标签 (${relatedTags.length})</div>
               <div class="detail-connections">
-                ${members.map(member => `
-                  <div class="connection-tag" data-id="${member._id}" data-type="contact">
-                    ${member.name}
+                ${parentTags.map(tag => `
+                  <div class="connection-tag" data-id="${tag._id}" data-type="tag" title="父标签">
+                    ↑ ${tag.name}
+                  </div>
+                `).join('')}
+                ${childTags.map(tag => `
+                  <div class="connection-tag" data-id="${tag._id}" data-type="tag" title="子标签">
+                    ↓ ${tag.name}
                   </div>
                 `).join('')}
               </div>
             </div>
           ` : ''}
         `;
-      } else if (node.type === 'contact' || node.type === 'freelancer') { // 处理联系人和自由职业者
-        if (node.companies && node.companies.length > 0) {
-          subtitle.textContent = node.companies.map(c => c.name).join(', ');
-        } else if (node.organizations && node.organizations.length > 0) {
-          subtitle.textContent = node.organizations.map(o => o.name).join(', ');
-        } else {
-          subtitle.textContent = '自由职业者';
-        }
-        
-        // 查找同一公司或组织的其他成员
-        let colleagues = [];
-        if (node.companies && node.companies.length > 0) {
-          colleagues = contacts.filter(contact => {
-            return contact._id !== node._id && 
-                  contact.companies && 
-                  contact.companies.some(c => node.companies.some(nc => nc._id === c._id));
-          });
-        } else if (node.organizations && node.organizations.length > 0) {
-          colleagues = contacts.filter(contact => {
-            return contact._id !== node._id && 
-                  contact.organizations && 
-                  contact.organizations.some(o => node.organizations.some(no => no._id === o._id));
-          });
-        }
+      } else if (node.type === 'contact' || node.type === 'freelancer' || node.type === 'person') { // 处理联系人、自由职业者和人员
+        subtitle.textContent = '联系人'
         
         content.innerHTML = `
           <img src="${node.avatar || 'https://via.placeholder.com/80'}" alt="${node.name}" class="detail-avatar">
@@ -215,46 +233,20 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
           </div>
           
-          ${node.profile ? `
+          ${node.description ? `
           <div class="detail-section">
             <div class="detail-section-title">个人简介</div>
-            <p>${node.profile.replace(/\n/g, '<br>')}</p>
+            <p>${node.description.replace(/\n/g, '<br>')}</p>
           </div>
           ` : ''}
           
-          ${node.companies && node.companies.length > 0 ? `
+          ${node.tags && node.tags.length > 0 ? `
             <div class="detail-section">
-              <div class="detail-section-title">工作单位</div>
+              <div class="detail-section-title">标签</div>
               <div class="detail-connections">
-                ${node.companies.map(company => `
-                  <div class="connection-tag" data-id="${company._id}" data-type="company">
-                    ${company.name}
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          ` : ''}
-          
-          ${node.organizations && node.organizations.length > 0 ? `
-            <div class="detail-section">
-              <div class="detail-section-title">所属组织</div>
-              <div class="detail-connections">
-                ${node.organizations.map(organization => `
-                  <div class="connection-tag" data-id="${organization._id}" data-type="organization">
-                    ${organization.name}
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          ` : ''}
-          
-          ${colleagues.length > 0 ? `
-            <div class="detail-section">
-              <div class="detail-section-title">同事 (${colleagues.length})</div>
-              <div class="detail-connections">
-                ${colleagues.map(col => `
-                  <div class="connection-tag" data-id="${col._id}" data-type="contact">
-                    ${col.name}
+                ${node.tags.map(tag => `
+                  <div class="connection-tag" data-id="${tag._id}" data-type="tag">
+                    ${tag.name}
                   </div>
                 `).join('')}
               </div>
@@ -273,9 +265,12 @@ document.addEventListener('DOMContentLoaded', function() {
             // 查找对应的节点
             let clickedNode = graphData.nodes.find(n => n._id === id && n.type === type);
             
-            // 如果找不到节点，尝试将type当作freelancer查找（处理自由职业者的情况）
+            // 如果找不到节点，尝试其他类型查找
             if (!clickedNode && type === 'contact') {
               clickedNode = graphData.nodes.find(n => n._id === id && n.type === 'freelancer');
+              if (!clickedNode) {
+                clickedNode = graphData.nodes.find(n => n._id === id && n.type === 'person');
+              }
             }
             
             if (clickedNode && graph) {
@@ -293,9 +288,29 @@ document.addEventListener('DOMContentLoaded', function() {
         // 添加编辑按钮点击事件
         const editButton = document.getElementById('editButton');
         if (editButton) {
-          editButton.onclick = () => {
-            showEditModal(node);
-          };
+          // 移除之前的事件监听器，避免重复绑定
+          editButton.onclick = null;
+          
+          // 使用立即执行函数创建独立的作用域，避免闭包变量污染
+          editButton.onclick = ((currentNode) => {
+            return () => {
+              console.log('=== 编辑按钮点击调试 ===');
+              console.log('当前节点:', currentNode);
+              console.log('节点类型:', currentNode.type);
+              console.log('节点ID:', currentNode._id);
+              console.log('========================');
+              
+              // 从graphData.nodes中重新获取最新的节点数据，确保数据一致性
+              const latestNode = graphData.nodes.find(n => n._id === currentNode._id && n.type === currentNode.type);
+              if (latestNode) {
+                console.log('使用最新节点数据:', latestNode);
+                showEditModal(latestNode);
+              } else {
+                console.warn('未找到对应的节点数据，使用当前节点:', currentNode);
+                showEditModal(currentNode);
+              }
+            };
+          })(node);
         }
         
         // 添加删除按钮点击事件
@@ -315,155 +330,248 @@ document.addEventListener('DOMContentLoaded', function() {
       panel.classList.add('visible');
       
       console.log('详情面板已显示');
+      
+      // 调试：检查 graphData.nodes 中的数据结构
+      console.log('=== graphData.nodes 调试 ===');
+      const personNodes = graphData.nodes.filter(n => n.type === 'person');
+      console.log('所有人员节点:', personNodes);
+      if (personNodes.length > 0) {
+        console.log('第一个人员节点示例:', personNodes[0]);
+        console.log('第一个人员节点的 description:', personNodes[0].description);
+      }
+      console.log('========================');
+    }
+    
+    // 专门为编辑模式设置的标签页事件监听器
+    function setupModalTabsForEdit() {
+      console.log('设置编辑模式下的标签页事件监听器');
+      const modalTabs = document.querySelectorAll('.modal-nav-tab');
+      
+      modalTabs.forEach(tab => {
+        // 移除旧的事件监听器
+        tab.removeEventListener('click', tab._modalTabClickHandler);
+        
+        // 创建编辑模式专用的事件处理函数
+        tab._modalTabClickHandler = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          
+          // 编辑模式下完全禁用标签页切换
+          if (window.isEditMode) {
+            console.log('编辑模式下禁用标签页切换，当前节点类型:', window.currentEditingNode?.type);
+            return false;
+          }
+        };
+        
+        // 添加新的事件监听器
+        tab.addEventListener('click', tab._modalTabClickHandler);
+      });
     }
     
     // 显示编辑模态框
     function showEditModal(node) {
-      // 设置模态框标题为编辑模式
-      document.getElementById('modalTitle').textContent = `编辑${node.type === 'contact' ? '联系人' : node.type === 'company' ? '公司' : '组织'}`;
+      console.log('=== showEditModal 调试开始 ===');
+      console.log('编辑节点:', node);
       
-      const modal = document.getElementById('addModal');
+      try {
+        // 获取模态框元素
+        const modal = document.getElementById('addModal');
+        console.log('模态框元素:', modal);
+        
+        // 首先重置模态框状态，确保干净的初始状态
+        console.log('重置模态框状态...');
+        
+        // 清除编辑模式标记
+        window.isEditMode = false;
+        window.currentEditingNode = null;
+        
+        // 重置所有标签页状态
+        document.querySelectorAll('.modal-nav-tab').forEach(tab => {
+          tab.classList.remove('active');
+        });
+        
+        // 隐藏所有表单
+        document.getElementById('contactForm').style.display = 'none';
+        document.getElementById('tagForm').style.display = 'none';
+        
+        // 移除模态框的编辑模式CSS类
+        modal.classList.remove('edit-mode');
+        
+        // 判断节点类型（只声明一次）
+        const isContactType = node.type === 'contact' || node.type === 'person' || node.type === 'freelancer';
+        
+        // 设置模态框标题为编辑模式
+        document.getElementById('modalTitle').textContent = `编辑${isContactType ? '联系人' : '标签'}`;
       
-      // 移动端处理：禁止背景滚动
-      if (isMobileDevice()) {
-        document.body.style.overflow = 'hidden';
+        // 移动端处理：禁止背景滚动
+        if (isMobileDevice()) {
+          document.body.style.overflow = 'hidden';
+        }
+        
+        // 根据节点类型选择相应的标签页
+        const tabSelector = isContactType ? '[data-form="contactForm"]' : '[data-form="tagForm"]';
+        
+        console.log('节点类型判断:', {
+          nodeType: node.type,
+          isContactType: isContactType,
+          tabSelector: tabSelector
+        });
+        
+        // 激活对应的标签页
+        const targetTab = document.querySelector(tabSelector);
+        if (targetTab) {
+          targetTab.classList.add('active');
+        }
+        
+        // 显示对应的表单
+        const formId = isContactType ? 'contactForm' : 'tagForm';
+        document.getElementById(formId).style.display = 'block';
+        
+        console.log('表单显示:', {
+          formId: formId,
+          contactFormDisplay: document.getElementById('contactForm').style.display,
+          tagFormDisplay: document.getElementById('tagForm').style.display
+        });
+        
+        // 填充表单数据
+        if (node.type === 'contact' || node.type === 'freelancer' || node.type === 'person') {
+          document.getElementById('contactName').value = node.name || '';
+          document.getElementById('contactPhone').value = node.phone || '';
+          document.getElementById('contactEmail').value = node.email || '';
+          document.getElementById('contactWechat').value = node.wechat || '';
+          document.getElementById('contactProfile').value = node.description || '';
+          
+          // 显示当前头像预览
+          const avatarPreview = document.getElementById('avatarPreview');
+          const previewImage = document.getElementById('previewImage');
+          if (avatarPreview && previewImage) {
+            if (node.avatar) {
+              previewImage.src = node.avatar;
+              avatarPreview.style.display = 'block';
+            } else {
+              previewImage.src = '';
+              avatarPreview.style.display = 'none';
+            }
+          }
+          
+          // 加载标签选项
+          loadTagOptions('contactTags');
+          
+          // 使用setTimeout确保loadTagOptions完成后再设置选中状态和UI
+          setTimeout(() => {
+            // 设置选中的标签
+            const tagsSelect = document.getElementById('contactTags');
+            // 清除所有已选择的选项
+            Array.from(tagsSelect.options).forEach(option => {
+              option.selected = false;
+            });
+            
+            if (node.tags && node.tags.length > 0) {
+              // 选中相应的标签
+              node.tags.forEach(tag => {
+                const option = Array.from(tagsSelect.options).find(opt => opt.value === tag._id);
+                if (option) {
+                  option.selected = true;
+                }
+              });
+            }
+            
+            // 立即更新关系选择的UI显示
+            setupRelationSelection('contactTags', 'selectedContactTags');
+          }, 10);
+        } else if (node.type === 'tag') {
+          document.getElementById('tagName').value = node.name || '';
+          document.getElementById('tagDescription').value = node.description || '';
+          
+          // 加载标签关联选项
+          loadTagOptions('tagParentTags', node._id);
+          
+          // 使用setTimeout确保loadTagOptions完成后再设置选中状态和UI
+          setTimeout(() => {
+            // 设置选中的关联标签
+            const parentTagsSelect = document.getElementById('tagParentTags');
+            // 清除所有已选择的选项
+            Array.from(parentTagsSelect.options).forEach(option => {
+              option.selected = false;
+            });
+            
+            if (node.parent_tags && node.parent_tags.length > 0) {
+              // 选中相应的父标签
+              node.parent_tags.forEach(tag => {
+                const option = Array.from(parentTagsSelect.options).find(opt => opt.value === tag._id);
+                if (option) {
+                  option.selected = true;
+                }
+              });
+            }
+            
+            // 立即更新关系选择的UI显示
+            setupRelationSelection('tagParentTags', 'selectedTagParentTags');
+          }, 10);
+        }
+        
+        // 设置编辑模式标记
+        window.currentEditingNode = node;
+        window.isEditMode = true;
+        
+        // 重置头像相关的全局变量
+        window.currentAvatarFile = null;
+        window.currentAvatarPreview = null;
+        
+        console.log('编辑模式已开启，节点数据:', node);
+        console.log('最终状态检查:', {
+          isEditMode: window.isEditMode,
+          currentEditingNode: window.currentEditingNode,
+          contactFormDisplay: document.getElementById('contactForm').style.display,
+          tagFormDisplay: document.getElementById('tagForm').style.display,
+          activeTab: document.querySelector('.modal-nav-tab.active')?.getAttribute('data-form'),
+          modalHasEditClass: modal.classList.contains('edit-mode')
+        });
+        
+        // 添加编辑模式CSS类
+        modal.classList.add('edit-mode');
+        
+        // 重新初始化模态框标签页事件监听器，确保编辑模式下的限制生效
+        setupModalTabsForEdit();
+        
+        // 添加额外的状态验证日志
+        setTimeout(() => {
+          console.log('=== 模态框初始化完成后状态验证 ===');
+          console.log('编辑模式状态:', {
+            isEditMode: window.isEditMode,
+            currentEditingNode: window.currentEditingNode?.type,
+            modalVisible: modal.style.display === 'flex',
+            contactFormVisible: document.getElementById('contactForm').style.display === 'block',
+            tagFormVisible: document.getElementById('tagForm').style.display === 'block',
+            activeTabDataForm: document.querySelector('.modal-nav-tab.active')?.getAttribute('data-form'),
+            modalHasEditClass: modal.classList.contains('edit-mode')
+          });
+        }, 50);
+          
+        // 显示模态框
+        modal.style.display = 'flex';
+        modal.style.opacity = '0';
+        setTimeout(() => {
+          modal.style.opacity = '1';
+          modal.classList.add('visible');
+        }, 10);
+      } catch (error) {
+        console.error('showEditModal 出错:', error);
+        if (window.errorHandler) {
+          window.errorHandler.showError({
+            type: 'error',
+            message: '打开编辑窗口时出错: ' + error.message
+          });
+        }
       }
-      
-      // 根据节点类型选择相应的标签页
-      const tabSelector = node.type === 'contact' ? '[data-form="contactForm"]' : 
-                         node.type === 'company' ? '[data-form="companyForm"]' : 
-                         '[data-form="organizationForm"]';
-      
-      // 激活对应的标签页
-      document.querySelectorAll('.modal-tab').forEach(tab => {
-        tab.classList.remove('active');
-      });
-      document.querySelector(tabSelector).classList.add('active');
-      
-      // 隐藏所有表单
-      document.getElementById('contactForm').style.display = 'none';
-      document.getElementById('companyForm').style.display = 'none';
-      document.getElementById('organizationForm').style.display = 'none';
-      
-      // 显示对应的表单
-      const formId = node.type === 'contact' ? 'contactForm' : 
-                    node.type === 'company' ? 'companyForm' : 
-                    'organizationForm';
-      document.getElementById(formId).style.display = 'block';
-      
-      // 填充表单数据
-      if (node.type === 'contact' || node.type === 'freelancer') {
-        document.getElementById('contactName').value = node.name || '';
-        document.getElementById('contactPhone').value = node.phone || '';
-        document.getElementById('contactEmail').value = node.email || '';
-        document.getElementById('contactWechat').value = node.wechat || '';
-        document.getElementById('contactProfile').value = node.profile || '';
-        
-        // 显示当前头像预览
-        const avatarPreview = document.getElementById('avatarPreview');
-        const previewImage = document.getElementById('previewImage');
-        if (node.avatar) {
-          previewImage.src = node.avatar;
-          avatarPreview.style.display = 'block';
-        } else {
-          previewImage.src = '';
-          avatarPreview.style.display = 'none';
-        }
-        
-        // 加载公司和组织选项
-        loadCompanyOptions();
-        loadOrganizationOptions('contactOrganizations');
-        
-        // 设置选中的公司和组织
-        const companiesSelect = document.getElementById('contactCompanies');
-        // 清除所有已选择的选项
-        Array.from(companiesSelect.options).forEach(option => {
-          option.selected = false;
-        });
-        
-        if (node.companies && node.companies.length > 0) {
-          // 选中相应的公司
-          node.companies.forEach(company => {
-            const option = Array.from(companiesSelect.options).find(opt => opt.value === company._id);
-            if (option) {
-              option.selected = true;
-            }
-          });
-        }
-        
-        const organizationsSelect = document.getElementById('contactOrganizations');
-        // 清除所有已选择的选项
-        Array.from(organizationsSelect.options).forEach(option => {
-          option.selected = false;
-        });
-        
-        if (node.organizations && node.organizations.length > 0) {
-          // 选中相应的组织
-          node.organizations.forEach(org => {
-            const option = Array.from(organizationsSelect.options).find(opt => opt.value === org._id);
-            if (option) {
-              option.selected = true;
-            }
-          });
-        }
-        
-        // 立即更新关系选择的UI显示
-        setupRelationSelection('contactCompanies', 'selectedCompanies');
-        setupRelationSelection('contactOrganizations', 'selectedOrganizations');
-      } else if (node.type === 'company') {
-        document.getElementById('companyName').value = node.name || '';
-        document.getElementById('companyDescription').value = node.description || '';
-        
-        // 加载组织选项
-        loadOrganizationOptions('companyOrganizations');
-        
-        // 设置选中的组织
-        const organizationsSelect = document.getElementById('companyOrganizations');
-        // 清除所有已选中的选项
-        Array.from(organizationsSelect.options).forEach(option => {
-          option.selected = false;
-        });
-        
-        if (node.organizations && node.organizations.length > 0) {
-          // 选中相应的组织
-          node.organizations.forEach(org => {
-            const option = Array.from(organizationsSelect.options).find(opt => opt.value === org._id);
-            if (option) {
-              option.selected = true;
-            }
-          });
-        }
-        
-        // 立即更新关系选择的UI显示
-        setupRelationSelection('companyOrganizations', 'selectedCompanyOrgs');
-      } else if (node.type === 'organization') {
-        document.getElementById('organizationName').value = node.name || '';
-        document.getElementById('organizationDescription').value = node.description || '';
-      }
-      
-      // 修改保存按钮的行为
-      const saveButton = document.getElementById('modalSave');
-      saveButton.onclick = () => {
-        updateNode(node);
-      };
-      
-      // 显示模态框
-      modal.style.display = 'flex';
-      modal.style.opacity = '0';
-      setTimeout(() => {
-        modal.style.opacity = '1';
-        modal.classList.add('visible');
-      }, 10);
     }
     
     // 更新节点数据
     function updateNode(node) {
-      if (node.type === 'contact' || node.type === 'freelancer') {
+      if (node.type === 'contact' || node.type === 'freelancer' || node.type === 'person') {
         updateContact(node);
-      } else if (node.type === 'company') {
-        updateCompany(node);
-      } else if (node.type === 'organization') {
-        updateOrganization(node);
+      } else if (node.type === 'tag') {
+        updateTag(node);
       }
     }
     
@@ -473,21 +581,26 @@ document.addEventListener('DOMContentLoaded', function() {
       const phone = document.getElementById('contactPhone').value.trim();
       const email = document.getElementById('contactEmail').value.trim();
       const wechat = document.getElementById('contactWechat').value.trim();
-      const profile = document.getElementById('contactProfile').value.trim();
-      const avatarFile = document.getElementById('contactAvatar').files[0];
+      const description = document.getElementById('contactProfile').value.trim();
+      // 使用全局变量获取头像文件，而不是直接从DOM元素
+      const avatarFile = window.currentAvatarFile || null;
+      
+      console.log('更新联系人 - 头像文件:', avatarFile);
+      console.log('更新联系人 - 当前头像预览:', window.currentAvatarPreview);
       
       if (!name) {
-        alert('请输入联系人姓名');
+        if (window.errorHandler) {
+          window.errorHandler.showError({
+            type: 'validation',
+            message: '请输入联系人姓名'
+          });
+        }
         return;
       }
       
-      // 获取选中的公司
-      const companiesSelect = document.getElementById('contactCompanies');
-      const selectedCompanyIds = Array.from(companiesSelect.selectedOptions).map(option => option.value).filter(id => id !== '');
-      
-      // 获取选中的组织
-      const organizationsSelect = document.getElementById('contactOrganizations');
-      const selectedOrganizationIds = Array.from(organizationsSelect.selectedOptions).map(option => option.value).filter(id => id !== '');
+      // 获取选中的标签
+      const tagsSelect = document.getElementById('contactTags');
+      const selectedTagIds = Array.from(tagsSelect.selectedOptions).map(option => option.value).filter(id => id !== '');
       
       // 更新联系人数据
       const updatedContact = {
@@ -495,78 +608,235 @@ document.addEventListener('DOMContentLoaded', function() {
         phone,
         email,
         wechat,
-        profile,
+        description,
         avatar: contact.avatar // 保留原来的头像
       };
       
-      // 添加公司信息
-      const contactCompanies = [];
-      if (selectedCompanyIds.length > 0) {
-        selectedCompanyIds.forEach(companyId => {
-          const company = companies.find(c => c._id === companyId);
-          if (company) {
-            contactCompanies.push({
-              _id: company._id,
-              name: company.name
+      // 添加标签信息
+      const contactTags = [];
+      if (selectedTagIds.length > 0) {
+        selectedTagIds.forEach(tagId => {
+          const tag = tags.find(t => t._id === tagId);
+          if (tag) {
+            contactTags.push({
+              _id: tag._id,
+              name: tag.name
             });
           }
         });
       }
-      updatedContact.companies = contactCompanies;
+      updatedContact.tags = contactTags;
       
-      // 添加组织信息
-      const contactOrganizations = [];
-      if (selectedOrganizationIds.length > 0) {
-        selectedOrganizationIds.forEach(organizationId => {
-          const organization = organizations.find(o => o._id === organizationId);
-          if (organization) {
-            contactOrganizations.push({
-              _id: organization._id,
-              name: organization.name
-            });
-          }
-        });
-      }
-      updatedContact.organizations = contactOrganizations;
-      
-      // 如果上传了新头像，先处理头像
-      if (avatarFile) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          // 使用Base64编码的图片数据
-          updatedContact.avatar = e.target.result;
-          // 发送带有新头像的更新请求
-          sendUpdateRequest(updatedContact);
-        };
-        reader.readAsDataURL(avatarFile);
+      // 如果上传了新头像，使用处理后的Base64数据
+      if (avatarFile && window.currentAvatarPreview) {
+        console.log('使用新头像数据:', window.currentAvatarPreview.substring(0, 50) + '...');
+        updatedContact.avatar = window.currentAvatarPreview;
+        sendUpdateRequest(updatedContact);
       } else {
+        console.log('没有新头像，保持原头像:', contact.avatar ? '有原头像' : '无原头像');
         // 如果没有上传新头像，直接发送更新请求
         sendUpdateRequest(updatedContact);
       }
       
       // 发送更新请求的函数
-      function sendUpdateRequest(data) {
-        fetch(`/api/contacts/${contact._id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(data)
-        })
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('更新联系人失败');
-          }
-          return response.json();
-        })
-        .then(data => {
-          console.log('联系人更新成功:', data);
+      async function sendUpdateRequest(data) {
+        try {
+          // 首先调用后端API保存数据
+          const response = await fetch(`/api/contacts/${contact._id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+          });
           
-          // 更新本地数据
-          const index = contacts.findIndex(c => c._id === contact._id);
-          if (index !== -1) {
-            contacts[index] = { ...contacts[index], ...data };
+          if (!response.ok) {
+            throw new Error(`API调用失败: ${response.status} ${response.statusText}`);
           }
+          
+          const result = await response.json();
+          console.log('联系人API更新成功:', result);
+          
+          // API成功后，更新本地数据
+          const index = persons.findIndex(c => c._id === contact._id);
+          if (index !== -1) {
+            persons[index] = { ...persons[index], ...data };
+            // 保持向后兼容
+            contacts = persons;
+            
+            console.log('联系人数据已更新:', persons[index]);
+            console.log('更新的字段:', data);
+            
+            // 同步更新graphData.nodes中的对应节点
+            const nodeIndex = graphData.nodes.findIndex(node => 
+              node.type === 'person' && node._id === contact._id
+            );
+            if (nodeIndex !== -1) {
+              // 更新节点数据，保持原有的图表属性
+              graphData.nodes[nodeIndex] = {
+                ...graphData.nodes[nodeIndex],
+                ...persons[index],
+                // 保持图表相关属性
+                type: graphData.nodes[nodeIndex].type,
+                id: graphData.nodes[nodeIndex].id,
+                size: graphData.nodes[nodeIndex].size,
+                color: graphData.nodes[nodeIndex].color
+              };
+              console.log('图表节点数据已同步更新:', graphData.nodes[nodeIndex]);
+            }
+          }
+          
+          // 保存数据到localStorage作为备份
+          saveDataToStorage();
+          
+          // 关闭模态框
+          closeModal();
+          
+          // 重新创建图表数据（确保完整同步）
+          createGraphData();
+          
+          // 更新图表
+          updateGraph();
+          
+          // 更新列表
+          updateList();
+          
+          // 刷新详情面板 - 使用更新后的图表节点数据
+          if (index !== -1 && nodeIndex !== -1) {
+            showDetailPanel(graphData.nodes[nodeIndex]);
+            console.log('详情面板已刷新，显示最新数据:', graphData.nodes[nodeIndex]);
+          }
+          
+          // 显示成功消息
+          if (window.errorHandler) {
+            window.errorHandler.showError({
+              type: 'success',
+              message: '联系人更新成功'
+            });
+          }
+          
+        } catch (error) {
+          console.error('更新联系人出错:', error);
+          
+          // API调用失败时，仍然更新本地数据作为备份
+          const index = persons.findIndex(c => c._id === contact._id);
+          if (index !== -1) {
+            persons[index] = { ...persons[index], ...data };
+            contacts = persons;
+            saveDataToStorage();
+            
+            // 更新UI
+            createGraphData();
+            updateGraph();
+            updateList();
+            closeModal();
+            
+            // 刷新详情面板 - 使用更新后的图表节点数据
+            const updatedNodeIndex = graphData.nodes.findIndex(node => 
+              node.type === 'person' && node._id === contact._id
+            );
+            if (updatedNodeIndex !== -1) {
+              showDetailPanel(graphData.nodes[updatedNodeIndex]);
+            }
+          }
+          
+          // 显示错误信息
+          if (window.errorHandler) {
+            window.errorHandler.showError({
+              type: 'error',
+              message: `更新联系人失败: ${error.message}。数据已保存到本地缓存。`
+            });
+          }
+        }
+      }
+    }
+    
+    // 更新标签
+    function updateTag(tag) {
+      const name = document.getElementById('tagName').value.trim();
+      const description = document.getElementById('tagDescription').value.trim();
+      
+      if (!name) {
+        if (window.errorHandler) {
+          window.errorHandler.showError({
+            type: 'validation',
+            message: '请输入标签名称'
+          });
+        }
+        return;
+      }
+      
+      // 获取关联的标签
+      const parentTagsSelect = document.getElementById('tagParentTags');
+      const selectedParentTagIds = Array.from(parentTagsSelect.selectedOptions)
+        .map(option => option.value)
+        .filter(id => id !== '');
+      
+      // 构建父标签数据
+      const parentTags = [];
+      if (selectedParentTagIds.length > 0) {
+        selectedParentTagIds.forEach(tagId => {
+          const tagObj = tags.find(t => t._id === tagId);
+          if (tagObj) {
+            parentTags.push({
+              _id: tagObj._id,
+              name: tagObj.name
+            });
+          }
+        });
+      }
+      
+      // 更新标签数据 - 只发送需要更新的字段，让后端处理双向绑定
+      const updatedTag = {
+        name,
+        description,
+        parent_tags: parentTags
+        // 不手动设置child_tags，让后端API处理双向绑定
+        // connections和其他字段由后端维护
+      };
+      
+      // 调用API更新标签数据
+      updateTagWithAPI(updatedTag, tag);
+      
+      // 异步更新标签的函数
+      async function updateTagWithAPI(data, originalTag) {
+        try {
+          // 首先调用后端API保存数据
+          const response = await fetch(`/api/tags/${originalTag._id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+          });
+          
+          if (!response.ok) {
+            throw new Error(`API调用失败: ${response.status} ${response.statusText}`);
+          }
+          
+          const result = await response.json();
+          console.log('标签API更新成功:', result);
+          
+          // API成功后，使用后端返回的完整数据更新本地数据
+          const index = tags.findIndex(t => t._id === originalTag._id);
+          if (index !== -1) {
+            tags[index] = result; // 使用后端返回的完整数据，包含正确的双向绑定关系
+            
+            // 同时更新关联联系人中的标签信息
+            persons.forEach(contact => {
+              if (contact.tags) {
+                contact.tags.forEach(contactTag => {
+                  if (contactTag._id === originalTag._id) {
+                    contactTag.name = data.name;
+                  }
+                });
+              }
+            });
+            contacts = persons; // 保持向后兼容
+          }
+          
+          // 保存数据到localStorage作为备份
+          saveDataToStorage();
           
           // 关闭模态框
           closeModal();
@@ -580,75 +850,73 @@ document.addEventListener('DOMContentLoaded', function() {
           // 更新列表
           updateList();
           
-          // 刷新详情面板
-          showDetailPanel(contacts[index]);
-        })
-        .catch(error => {
-          console.error('更新联系人出错:', error);
-          alert('更新联系人失败: ' + error.message);
-        });
+          // 刷新详情面板 - 使用更新后的图表节点数据
+          if (index !== -1) {
+            const updatedTagNode = graphData.nodes.find(node => 
+              node.type === 'tag' && node._id === originalTag._id
+            );
+            if (updatedTagNode) {
+              showDetailPanel(updatedTagNode);
+            }
+          }
+          
+          // 显示成功消息
+          if (window.errorHandler) {
+            window.errorHandler.showError({
+              type: 'success',
+              message: '标签更新成功'
+            });
+          }
+          
+        } catch (error) {
+          console.error('更新标签出错:', error);
+          
+          // API调用失败时，仍然更新本地数据作为备份
+          const index = tags.findIndex(t => t._id === originalTag._id);
+          if (index !== -1) {
+            // API失败时只能使用部分数据，但保留原有的其他字段
+            tags[index] = { ...tags[index], ...data };
+            
+            // 同时更新关联联系人中的标签信息
+            persons.forEach(contact => {
+              if (contact.tags) {
+                contact.tags.forEach(contactTag => {
+                  if (contactTag._id === originalTag._id) {
+                    contactTag.name = data.name;
+                  }
+                });
+              }
+            });
+            contacts = persons;
+            
+            saveDataToStorage();
+            closeModal();
+            createGraphData();
+            updateGraph();
+            updateList();
+            
+            // 刷新详情面板 - 使用更新后的图表节点数据
+            const updatedTagNode = graphData.nodes.find(node => 
+              node.type === 'tag' && node._id === originalTag._id
+            );
+            if (updatedTagNode) {
+              showDetailPanel(updatedTagNode);
+            }
+          }
+          
+          // 显示错误信息
+          if (window.errorHandler) {
+            window.errorHandler.showError({
+              type: 'error',
+              message: `更新标签失败: ${error.message}。数据已保存到本地缓存。`
+            });
+          }
+        }
       }
     }
     
     // 更新组织
-    function updateOrganization(organization) {
-      const name = document.getElementById('organizationName').value.trim();
-      const description = document.getElementById('organizationDescription').value.trim();
-      
-      if (!name) {
-        alert('请输入组织名称');
-        return;
-      }
-      
-      // 更新组织数据
-      const updatedOrganization = {
-        name,
-        description
-      };
-      
-      // 发送更新请求
-      fetch(`/api/organizations/${organization._id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(updatedOrganization)
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('更新组织失败');
-        }
-        return response.json();
-      })
-      .then(data => {
-        console.log('组织更新成功:', data);
-        
-        // 更新本地数据
-        const index = organizations.findIndex(o => o._id === organization._id);
-        if (index !== -1) {
-          organizations[index] = { ...organizations[index], ...data };
-        }
-        
-        // 关闭模态框
-        closeModal();
-        
-        // 重新创建图表数据
-        createGraphData();
-        
-        // 更新图表
-        updateGraph();
-        
-        // 更新列表
-        updateList();
-        
-        // 刷新详情面板
-        showDetailPanel(organizations[index]);
-      })
-      .catch(error => {
-        console.error('更新组织出错:', error);
-        alert('更新组织失败: ' + error.message);
-      });
-    }
+
     
     // 关闭模态框
     let isModalClosing = false; // 添加状态标记，防止多次快速点击
@@ -686,65 +954,67 @@ document.addEventListener('DOMContentLoaded', function() {
         addModal.style.display = 'none';
         document.body.removeChild(overlay); // 移除遮罩层
         isModalClosing = false; // 重置状态
+        
+        // 清除编辑模式标记
+        window.isEditMode = false;
+        window.currentEditingNode = null;
+        
+        // 清除头像相关的全局变量
+        window.currentAvatarFile = null;
+        window.currentAvatarPreview = null;
+        
+        // 移除编辑模式CSS类
+        addModal.classList.remove('edit-mode');
       }, 300); // 与CSS中transition的时间一致
     }
     
     // 删除节点
-    function deleteNode(node) {
-      let apiUrl = '';
-      
-      if (node.type === 'contact' || node.type === 'freelancer') {
-        apiUrl = `/api/contacts/${node._id}`;
-      } else if (node.type === 'company') {
-        apiUrl = `/api/companies/${node._id}`;
-      } else if (node.type === 'organization') {
-        apiUrl = `/api/organizations/${node._id}`;
-      }
-      
-      // 发送删除请求
-      fetch(apiUrl, {
-        method: 'DELETE'
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('删除失败');
+    async function deleteNode(node) {
+      try {
+        console.log('开始删除节点:', node);
+        
+        // 调用后端API删除数据
+        let apiUrl = '';
+        if (node.type === 'contact' || node.type === 'freelancer' || node.type === 'person') {
+          apiUrl = `/api/contacts/${node._id}`;
+        } else if (node.type === 'tag') {
+          apiUrl = `/api/tags/${node._id}`;
         }
-        return response.json();
-      })
-      .then(data => {
-        console.log('删除成功:', data);
+        
+        if (apiUrl) {
+          const response = await fetch(apiUrl, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (!response.ok) {
+            throw new Error(`API调用失败: ${response.status} ${response.statusText}`);
+          }
+          
+          console.log('后端删除成功');
+        }
         
         // 更新本地数据
-        if (node.type === 'contact' || node.type === 'freelancer') {
-          contacts = contacts.filter(c => c._id !== node._id);
-        } else if (node.type === 'company') {
-          // 删除公司时，还需要更新关联的联系人
-          companies = companies.filter(c => c._id !== node._id);
+        if (node.type === 'contact' || node.type === 'freelancer' || node.type === 'person') {
+          persons = persons.filter(c => c._id !== node._id);
+          contacts = persons; // 保持向后兼容
+        } else if (node.type === 'tag') {
+          // 删除标签时，还需要更新关联的联系人
+          tags = tags.filter(t => t._id !== node._id);
           
-          // 将关联到此公司的联系人更新
-          contacts.forEach(contact => {
-            if (contact.companies) {
-              contact.companies = contact.companies.filter(c => c._id !== node._id);
+          // 将关联到此标签的联系人更新
+          persons.forEach(contact => {
+            if (contact.tags) {
+              contact.tags = contact.tags.filter(t => t._id !== node._id);
             }
           });
-        } else if (node.type === 'organization') {
-          // 删除组织时，还需要更新关联的联系人和公司
-          organizations = organizations.filter(o => o._id !== node._id);
-          
-          // 将关联到此组织的联系人更新
-          contacts.forEach(contact => {
-            if (contact.organizations) {
-              contact.organizations = contact.organizations.filter(o => o._id !== node._id);
-            }
-          });
-          
-          // 将关联到此组织的公司更新
-          companies.forEach(company => {
-            if (company.organizations) {
-              company.organizations = company.organizations.filter(o => o._id !== node._id);
-            }
-          });
+          contacts = persons; // 保持向后兼容
         }
+        
+        // 保存数据到localStorage
+        saveDataToStorage();
         
         // 关闭详情面板
         closeDetailPanel();
@@ -757,11 +1027,46 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // 更新列表
         updateList();
-      })
-      .catch(error => {
+        
+        // 显示成功消息
+        if (window.errorHandler) {
+          window.errorHandler.showError({
+            type: 'success',
+            message: '删除成功'
+          });
+        }
+        
+      } catch (error) {
         console.error('删除出错:', error);
-        alert('删除失败: ' + error.message);
-      });
+        
+        // API调用失败时，仍然删除本地数据作为备份
+        if (node.type === 'contact' || node.type === 'freelancer' || node.type === 'person') {
+          persons = persons.filter(c => c._id !== node._id);
+          contacts = persons;
+        } else if (node.type === 'tag') {
+          tags = tags.filter(t => t._id !== node._id);
+          persons.forEach(contact => {
+            if (contact.tags) {
+              contact.tags = contact.tags.filter(t => t._id !== node._id);
+            }
+          });
+          contacts = persons;
+        }
+        
+        saveDataToStorage();
+        closeDetailPanel();
+        createGraphData();
+        updateGraph();
+        updateList();
+        
+        // 显示错误信息
+        if (window.errorHandler) {
+          window.errorHandler.showError({
+            type: 'error',
+            message: `删除失败: ${error.message}。数据已从本地缓存中删除。`
+          });
+        }
+      }
     }
     
     // 关闭详情面板
@@ -795,34 +1100,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // 给每个节点一个初始位置，而不是全部从中心开始
         graphData.nodes.forEach((node, i) => {
           // 根据节点类型和索引设定初始位置
-          if (node.type === 'organization') {
-            // 组织节点位于中心位置
-            node.x = 0;
-            node.y = 0;
-          } else if (node.type === 'company') {
-            // 公司节点围绕组织节点分布的外圈
-            // 检查该公司是否属于某个组织
-            if (node.organizations && node.organizations.length > 0) {
-              // 属于组织的公司围绕组织节点
-              const firstOrg = node.organizations[0]; // 取第一个组织作为定位参考
-              const companyIndex = companies.findIndex(c => c._id === node._id);
-              const companiesInOrg = companies.filter(c => 
-                c.organizations && c.organizations.some(org => org._id === firstOrg._id)
-              );
-              const angleStep = (2 * Math.PI) / companiesInOrg.length;
-              const indexInOrg = companiesInOrg.findIndex(c => c._id === node._id);
-              const angle = indexInOrg * angleStep;
-              const radius = 150; // 围绕组织的公司距离中心更远
-              node.x = radius * Math.cos(angle);
-              node.y = radius * Math.sin(angle);
-            } else {
-              // 不属于组织的公司在外围分布
-              const angle = (i % companies.length) * (2 * Math.PI / companies.length);
-              const radius = 250;
-              node.x = radius * Math.cos(angle);
-              node.y = radius * Math.sin(angle);
-            }
-          } else if (node.type === 'freelancer') {
+          if (node.type === 'freelancer') {
             // 自由职业者围绕中心分布，范围更小
             const angle = Math.random() * 2 * Math.PI;
             const radius = 200 + Math.random() * 100; // 缩小初始分布半径
@@ -832,34 +1110,11 @@ document.addEventListener('DOMContentLoaded', function() {
             node.vx = -node.x * 0.01;
             node.vy = -node.y * 0.01;
           } else if (node.type === 'contact') {
-            // 联系人初始位置靠近其关联的公司/组织
-            if (node.companies && node.companies.length > 0) {
-              // 找到第一个公司作为参考节点
-              const firstCompany = node.companies[0];
-              const company = graphData.nodes.find(n => n._id === firstCompany._id && n.type === 'company');
-              if (company) {
-                const angle = Math.random() * 2 * Math.PI;
-                const radius = 30 + Math.random() * 15;
-                node.x = (company.x || 0) + radius * Math.cos(angle);
-                node.y = (company.y || 0) + radius * Math.sin(angle);
-              }
-            } else if (node.organizations && node.organizations.length > 0) {
-              // 找到第一个组织作为参考节点
-              const firstOrganization = node.organizations[0];
-              const organization = graphData.nodes.find(n => n._id === firstOrganization._id && n.type === 'organization');
-              if (organization) {
-                const angle = Math.random() * 2 * Math.PI;
-                const radius = 50 + Math.random() * 20;
-                node.x = (organization.x || 0) + radius * Math.cos(angle);
-                node.y = (organization.y || 0) + radius * Math.sin(angle);
-              }
-            } else {
-              // 无关联公司或组织的联系人，随机位置
-              const angle = Math.random() * 2 * Math.PI;
-              const radius = 300 + Math.random() * 50;
-              node.x = radius * Math.cos(angle);
-              node.y = radius * Math.sin(angle);
-            }
+            // 联系人随机位置分布
+            const angle = Math.random() * 2 * Math.PI;
+            const radius = 300 + Math.random() * 50;
+            node.x = radius * Math.cos(angle);
+            node.y = radius * Math.sin(angle);
           }
         });
         
@@ -871,10 +1126,10 @@ document.addEventListener('DOMContentLoaded', function() {
           .nodeVal(node => {
             // 移动端缩小节点尺寸
             const mobileFactor = isMobile ? 0.7 : 1;
-            if (node.type === 'organization') return 28 * mobileFactor;
-            if (node.type === 'company') return 14 * mobileFactor;
-            if (node.type === 'freelancer') return 7 * mobileFactor;
-            return 7 * mobileFactor;
+            // 增大实际节点大小以提供更大的可点击区域
+            if (node.type === 'tag') return 40 * mobileFactor; // 标签节点最大，增大可点击区域
+            if (node.type === 'freelancer') return 15 * mobileFactor; // 增大可点击区域
+            return 15 * mobileFactor; // 增大可点击区域
           })
           // 添加坐标边界约束，防止节点飞得太远
           .d3AlphaDecay(0.02) // 降低衰减速度
@@ -903,29 +1158,110 @@ document.addEventListener('DOMContentLoaded', function() {
           })
           .nodeCanvasObject((node, ctx, globalScale) => {
             // 自定义节点渲染
-            let size = 7;
-            // 所有节点使用同一种颜色 RGB(179, 179, 179)
-            let color = 'rgb(179, 179, 179)';
+            // 使用较小的视觉大小，但nodeVal提供更大的可点击区域
+            let visualSize = node.size || 7;
+            let color = node.color;
             
-            if (node.type === 'organization') {
-              size = 28;
-            } else if (node.type === 'company') {
-              size = 14;
-            } else if (node.type === 'freelancer') {
-              // 自由职业者也使用相同颜色
+            // 所有节点统一使用灰色
+            if (!color) {
+              color = 'rgb(179, 179, 179)'; // 所有类型统一使用灰色
             }
             
-            // 节点主体
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, size, 0, 2 * Math.PI, false);
-            ctx.fillStyle = color;
-            ctx.fill();
+            // 为不同类型的节点设置视觉大小（保持原来的视觉效果）
+            if (!node.size) {
+              if (node.type === 'tag') {
+                visualSize = 20; // 标签节点视觉大小
+              } else if (node.type === 'person' || node.type === 'freelancer') {
+                visualSize = 10; // 人员节点视觉大小
+              }
+            }
+            
+            // 检查是否需要显示头像（仅对person和freelancer类型）
+            const shouldShowAvatar = (node.type === 'person' || node.type === 'freelancer') && 
+                                   node.avatar && 
+                                   node.avatar !== './icon/common.png' && 
+                                   node.avatar.trim() !== '';
+            
+            if (shouldShowAvatar) {
+              // 创建图片缓存键
+              const cacheKey = `avatar_${node.id}`;
+              
+              // 检查图片缓存
+              if (!window.avatarImageCache) {
+                window.avatarImageCache = new Map();
+              }
+              
+              let img = window.avatarImageCache.get(cacheKey);
+              
+              if (!img) {
+                // 创建新的图片对象
+                img = new Image();
+                img.onload = () => {
+                  // 图片加载完成后，标记为已加载并重新渲染
+                  window.avatarImageCache.set(cacheKey, img);
+                  // 触发重新渲染
+                  if (window.Graph) {
+                    window.Graph.refresh();
+                  }
+                };
+                img.onerror = () => {
+                  // 图片加载失败，从缓存中移除
+                  window.avatarImageCache.delete(cacheKey);
+                };
+                img.src = node.avatar;
+                // 临时存储未加载的图片对象
+                window.avatarImageCache.set(cacheKey, img);
+              }
+              
+              // 如果图片已加载完成，绘制头像
+              if (img.complete && img.naturalWidth > 0) {
+                // 保存当前画布状态
+                ctx.save();
+                
+                // 创建圆形裁剪路径
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, visualSize, 0, 2 * Math.PI, false);
+                ctx.clip();
+                
+                // 绘制头像
+                const avatarSize = visualSize * 2;
+                ctx.drawImage(
+                  img,
+                  node.x - visualSize,
+                  node.y - visualSize,
+                  avatarSize,
+                  avatarSize
+                );
+                
+                // 恢复画布状态
+                ctx.restore();
+                
+                // 绘制圆形边框
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, visualSize, 0, 2 * Math.PI, false);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1;
+                ctx.stroke();
+              } else {
+                // 图片未加载完成，绘制默认圆形
+                ctx.beginPath();
+                ctx.arc(node.x, node.y, visualSize, 0, 2 * Math.PI, false);
+                ctx.fillStyle = color;
+                ctx.fill();
+              }
+            } else {
+              // 没有头像或是默认头像，绘制普通圆形节点
+              ctx.beginPath();
+              ctx.arc(node.x, node.y, visualSize, 0, 2 * Math.PI, false);
+              ctx.fillStyle = color;
+              ctx.fill();
+            }
             
             // 如果节点被选中或悬停，添加高亮边框
             if ((selectedNode && node.id === selectedNode.id) || 
                 (hoverNode && node.id === hoverNode.id)) {
               ctx.beginPath();
-              ctx.arc(node.x, node.y, size + 2, 0, 2 * Math.PI, false);
+              ctx.arc(node.x, node.y, visualSize + 2, 0, 2 * Math.PI, false);
               
               // 为选中节点和悬停节点使用不同颜色
               if (selectedNode && node.id === selectedNode.id) {
@@ -940,13 +1276,15 @@ document.addEventListener('DOMContentLoaded', function() {
               // 显示节点的标签
               const label = node.name;
               const fontSize = 12/globalScale;
-              ctx.font = `${(node.type === 'company' || node.type === 'organization') ? fontSize * 1.4 : fontSize}px Sans-Serif`;
+              // 根据节点类型调整字体大小
+              const fontSizeMultiplier = node.type === 'tag' ? 1.2 : 1.0;
+              ctx.font = `${fontSize * fontSizeMultiplier}px Sans-Serif`;
               ctx.textAlign = 'center';
               ctx.textBaseline = 'middle';
               
               // 添加文字背景
               const textWidth = ctx.measureText(label).width;
-              const textYPos = node.y + size + 4 + fontSize/2;
+              const textYPos = node.y + visualSize + 4 + fontSize/2;
               ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
               ctx.fillRect(
                 node.x - textWidth/2 - 2,
@@ -971,87 +1309,84 @@ document.addEventListener('DOMContentLoaded', function() {
             const sourceNode = graphData.nodes.find(n => n.id === link.source.id || n.id === link.source);
             const targetNode = graphData.nodes.find(n => n.id === link.target.id || n.id === link.target);
             
-            // 如果链接涉及组织节点
-            if (sourceNode && targetNode && 
-                (sourceNode.type === 'organization' || targetNode.type === 'organization')) {
-              if (sourceNode.type === 'company' || targetNode.type === 'company') {
-                return 150; // 组织到公司的距离较大
-              }
-              return 80; // 组织到其他节点的距离也较大
+            // 标签之间的层级关系链接
+            if (link.type === 'hierarchy') {
+              return 80; // 层级关系链接距离适中
             }
             
-            // 如果是公司到公司的链接，距离适中
+            // 人员到标签的链接
             if (sourceNode && targetNode && 
-                sourceNode.type === 'company' && targetNode.type === 'company') {
-              return 120; // 公司间距离适中
+                ((sourceNode.type === 'person' || sourceNode.type === 'freelancer') && targetNode.type === 'tag') ||
+                (sourceNode.type === 'tag' && (targetNode.type === 'person' || targetNode.type === 'freelancer'))) {
+              // 根据标签的连接数量动态调整距离
+              const tagNode = sourceNode.type === 'tag' ? sourceNode : targetNode;
+              const baseDistance = 50;
+              const connectionFactor = Math.min(tagNode.connection_count || 1, 10);
+              return baseDistance + connectionFactor * 5; // 连接越多，距离越远
             }
             
-            // 如果是自由职业者到群组的链接
+            // 标签到标签的链接（非层级关系）
             if (sourceNode && targetNode && 
-                (sourceNode.type === 'freelancer' || targetNode.type === 'freelancer') &&
-                (sourceNode.type === 'no-company-group' || targetNode.type === 'no-company-group')) {
-              return 30; // 自由职业者到群组的距离较短
+                sourceNode.type === 'tag' && targetNode.type === 'tag') {
+              return 100; // 标签间距离较大
             }
             
-            // 公司与个人之间的链接
-            if (sourceNode && targetNode && 
-                ((sourceNode.type === 'company' && targetNode.type === 'contact') || 
-                 (sourceNode.type === 'contact' && targetNode.type === 'company'))) {
-              return 50; // 公司与个人之间的链接距离适中
-            }
-            
-            return 30; // 默认链接距离
+            return 40; // 默认链接距离
           }).strength(link => {
             // 获取源节点和目标节点
             const sourceNode = graphData.nodes.find(n => n.id === link.source.id || n.id === link.source);
             const targetNode = graphData.nodes.find(n => n.id === link.target.id || n.id === link.target);
             
-            // 组织相关链接的强度较小，允许更灵活的布局
-            if (sourceNode && targetNode && 
-                (sourceNode.type === 'organization' || targetNode.type === 'organization')) {
+            // 层级关系链接强度较小
+            if (link.type === 'hierarchy') {
               return 0.3;
             }
             
-            // 公司到联系人的链接强度适中
+            // 人员到标签的链接强度适中
             if (sourceNode && targetNode && 
-                ((sourceNode.type === 'company' && targetNode.type === 'contact') || 
-                 (sourceNode.type === 'contact' && targetNode.type === 'company'))) {
-              return 0.7;
+                ((sourceNode.type === 'person' || sourceNode.type === 'freelancer') && targetNode.type === 'tag') ||
+                (sourceNode.type === 'tag' && (targetNode.type === 'person' || targetNode.type === 'freelancer'))) {
+              return 0.8;
             }
             
             return 1.0; // 默认链接强度
           }))
           // 微调碰撞距离
           .d3Force('collision', d3.forceCollide(node => {
-            if (node.type === 'organization') return 40; // 大幅增加组织节点碰撞半径
-            if (node.type === 'company') return 20; // 公司节点碰撞半径
-            if (node.type === 'no-company-group') return 25; // 自由职业群组节点碰撞半径
-            if (node.type === 'freelancer') return 8; // 自由职业者碰撞半径
-            return 9; // 普通联系人碰撞半径
+            // 使用节点的动态size属性加上一定的缓冲区
+            const nodeSize = node.size || 7;
+            const buffer = 3; // 碰撞缓冲区
+            return nodeSize + buffer;
           }).strength(1.2).iterations(4)) // 增加碰撞强度和迭代次数，更严格地避免重叠
           // 调整互斥力，允许更紧凑的布局同时避免重叠
           .d3Force('charge', d3.forceManyBody()
             .strength(node => {
-              // 根据节点类型设置不同的排斥力
-              if (node.type === 'organization') return -300; // 大幅增加组织节点排斥力
-              if (node.type === 'company') return -150; // 公司节点排斥力
-              if (node.type === 'no-company-group') return -120; // 自由职业群组的排斥力
-              if (node.type === 'freelancer') return -50; // 增加自由职业者排斥力，让它们聚集更紧密
-              return -8; // 普通联系人排斥力
+              // 根据节点类型和大小设置不同的排斥力
+              const nodeSize = node.size || 7;
+              const basePower = nodeSize * 15; // 基础排斥力与节点大小成正比
+              
+              if (node.type === 'tag') {
+                // 标签节点排斥力与连接数量相关
+                const connectionFactor = Math.sqrt(node.connection_count || 1);
+                return -(basePower * connectionFactor);
+              } else if (node.type === 'freelancer') {
+                return -basePower * 0.8; // 自由职业者排斥力稍小
+              } else if (node.type === 'person') {
+                return -basePower; // 普通人员排斥力
+              }
+              return -basePower; // 默认排斥力
             })
             .distanceMax(300) // 增加互斥力的影响范围
             .theta(0.7) // 提高电荷力计算精度
           )
-          // 添加径向力，让联系人围绕公司/群组轨道运行
+          // 添加径向力，让自由职业者聚集在外围
           .d3Force('radial', d3.forceRadial(node => {
-            if (node.type === 'contact') {
-              return 0; // 联系人没有径向力
-            } else if (node.type === 'freelancer') {
-              return 350; // 自由职业者有向中心的径向力，限制在一定范围内
+            if (node.type === 'freelancer') {
+              return 250; // 自由职业者有向外的径向力
             }
             return null; // 其他节点没有径向力
           }).strength(node => {
-            return node.type === 'freelancer' ? 0.2 : 0; // 自由职业者有较弱的向心力
+            return node.type === 'freelancer' ? 0.1 : 0; // 自由职业者有较弱的向外力
           }))
           .d3Force('center', d3.forceCenter())
           .cooldownTicks(100) // 降低冷却时间
@@ -1079,6 +1414,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 let sourceSize = 7;
                 let targetSize = 7;
                 
+                if (start.type === 'tag') sourceSize = 35;
+                if (end.type === 'tag') targetSize = 35;
                 if (start.type === 'organization') sourceSize = 28;
                 if (end.type === 'organization') targetSize = 28;
                 if (start.type === 'company') sourceSize = 14;
@@ -1110,7 +1447,8 @@ document.addEventListener('DOMContentLoaded', function() {
               });
             }
           })
-          .onRenderFramePost(null);
+          .onRenderFramePost(null)
+          // 移除nodePointerAreaPaint配置，改用nodeVal增大可点击区域
         
         // 添加节点悬停事件
         graph.onNodeHover(node => {
@@ -1209,9 +1547,7 @@ document.addEventListener('DOMContentLoaded', function() {
           graph.d3Force('collision', d3.forceCollide(node => {
             // 增加碰撞半径，便于触摸选择
             const touchFactor = 1.5;
-            if (node.type === 'organization') return 40 * touchFactor;
-            if (node.type === 'company') return 20 * touchFactor; 
-            if (node.type === 'no-company-group') return 25 * touchFactor;
+            if (node.type === 'tag') return 45 * touchFactor;
             if (node.type === 'freelancer') return 8 * touchFactor;
             return 9 * touchFactor;
           }).strength(1.3).iterations(4));
@@ -1260,123 +1596,322 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     }
     
+    // 旧的saveDataToStorage函数已删除，使用文件开头的新版本
+    
+    // 旧的loadDataFromStorage函数已删除，使用文件开头的新版本
+    
     // 加载数据并创建图谱
+    // 计算每个标签的实际连接数量
+    function calculateTagConnections() {
+      console.log('开始计算标签连接数量');
+      
+      // 为每个标签初始化连接数为0
+      tags.forEach(tag => {
+        tag.connection_count = 0;
+      });
+      
+      // 遍历所有人员，统计每个标签的连接数
+      persons.forEach(person => {
+        if (person.tags && person.tags.length > 0) {
+          person.tags.forEach(tag => {
+            // 处理标签数据结构：可能是对象{_id, name}或简单的ID字符串
+            const tagId = typeof tag === 'object' ? tag._id : tag;
+            
+            // 找到对应的标签并增加连接数
+            const targetTag = tags.find(t => t._id === tagId);
+            if (targetTag) {
+              targetTag.connection_count = (targetTag.connection_count || 0) + 1;
+            }
+          });
+        }
+      });
+      
+      // 输出统计结果
+      const totalConnections = tags.reduce((sum, tag) => sum + (tag.connection_count || 0), 0);
+      console.log(`标签连接数计算完成，总连接数: ${totalConnections}`);
+      console.log('标签连接数详情:', tags.map(tag => `${tag.name}: ${tag.connection_count || 0}`).join(', '));
+    }
+    
     function loadData() {
       console.log("开始加载数据");
       
-      // 加载联系人数据
-      fetch('/api/contacts')
-        .then(response => response.json())
-        .then(data => {
-          contacts = data;
-          console.log(`加载了 ${contacts.length} 个联系人`);
-          
-          // 加载公司数据
-          return fetch('/api/companies');
-        })
-        .then(response => response.json())
-        .then(data => {
-          companies = data;
-          console.log(`加载了 ${companies.length} 个公司`);
-          
-          // 加载组织数据
-          return fetch('/api/organizations');
-        })
-        .then(response => response.json())
-        .then(data => {
-          organizations = data;
-          console.log(`加载了 ${organizations.length} 个组织`);
-          
-          // 创建图谱数据
-          createGraphData();
-          
-          // 更新列表
-          updateList();
-          
-          // 初始化图谱
-          if (initGraph()) {
-            // 设置工具栏
-            setupToolbar();
-          }
+      // 首先清除旧的localStorage数据
+      clearOldLocalStorageData();
+      
+      // 优先从服务器API获取最新数据
+      loadDataFromServer()
+        .then(() => {
+          console.log('成功从服务器加载数据');
+          initializeDataAndInterface();
         })
         .catch(error => {
-          console.error('加载数据失败:', error);
-          document.getElementById('listContainer').innerHTML = `
-            <div class="error-message">加载数据失败: ${error.message}</div>
-          `;
+          console.warn('从服务器加载数据失败，尝试使用localStorage:', error);
+          // 服务器加载失败时，尝试从localStorage加载
+          if (loadDataFromStorage() && persons.length > 0) {
+            console.log('使用localStorage中的数据');
+            initializeDataAndInterface();
+          } else {
+            console.log('localStorage中无数据，从JSON文件加载');
+            loadDataFromFiles();
+          }
         });
     }
     
-    // 创建图谱数据
+    // 从服务器API加载数据
+    function loadDataFromServer() {
+      return new Promise((resolve, reject) => {
+        // 首先检查本地数据版本
+        const localVersion = localStorage.getItem('dataVersion');
+        const localTimestamp = localStorage.getItem('lastModified');
+        
+        // 获取服务器数据版本信息
+        fetch('/api/data/version')
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+          })
+          .then(versionInfo => {
+            // 比较版本，如果本地数据是最新的且存在，则使用本地数据
+            if (localVersion === versionInfo.version && 
+                localTimestamp === versionInfo.lastModified &&
+                loadDataFromStorage() && persons.length > 0) {
+              console.log('本地数据已是最新版本，使用localStorage数据');
+              resolve();
+              return;
+            }
+            
+            // 本地数据过期或不存在，从服务器获取最新数据
+            console.log('本地数据过期，从服务器获取最新数据');
+            return fetch('/api/data/all');
+          })
+          .then(response => {
+            if (!response) return; // 已使用本地数据
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+          })
+          .then(data => {
+            if (!data) return; // 已使用本地数据
+            
+            // 更新本地数据
+            persons = Array.isArray(data.data.persons) ? data.data.persons : [];
+            tags = Array.isArray(data.data.tags) ? data.data.tags : [];
+            companies = Array.isArray(data.data.companies) ? data.data.companies : [];
+            organizations = Array.isArray(data.data.organizations) ? data.data.organizations : [];
+            contacts = persons; // 向后兼容
+            
+            console.log(`从服务器加载了 ${persons.length} 个人员和 ${tags.length} 个标签`);
+            
+            // 保存到localStorage并更新版本信息
+            saveDataToStorage();
+            localStorage.setItem('dataVersion', data.version);
+            localStorage.setItem('lastModified', data.lastModified);
+            
+            resolve();
+          })
+          .catch(error => {
+            console.error('从服务器加载数据失败:', error);
+            reject(error);
+          });
+      });
+    }
+    
+    // 从JSON文件加载数据（备用方案）
+    function loadDataFromFiles() {
+      
+      // 使用XMLHttpRequest加载JSON文件，避免CORS问题
+      function loadJSONFile(url) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', url, true);
+          xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+              if (xhr.status === 200) {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  resolve(data);
+                } catch (e) {
+                  reject(new Error(`解析JSON失败: ${e.message}`));
+                }
+              } else {
+                reject(new Error(`加载文件失败: ${xhr.status}`));
+              }
+            }
+          };
+          xhr.onerror = function() {
+            reject(new Error('网络错误'));
+          };
+          xhr.send();
+        });
+      }
+      
+      // 并行加载所有数据文件
+      Promise.all([
+        loadJSONFile('./data/persons.json'),
+        loadJSONFile('./data/tags.json')
+      ])
+      .then(([personsData, tagsData]) => {
+        // 设置人员数据
+        persons = Array.isArray(personsData) ? personsData : [];
+        console.log(`加载了 ${persons.length} 个人员`);
+        
+        // 设置标签数据
+        if (tagsData && tagsData.success && Array.isArray(tagsData.data)) {
+          tags = tagsData.data;
+        } else if (Array.isArray(tagsData)) {
+          tags = tagsData;
+        } else {
+          tags = [];
+        }
+        console.log(`加载了 ${tags.length} 个标签`);
+        
+        // 为了向后兼容，保持contacts变量指向persons
+        contacts = persons;
+        // 清空旧的数据变量
+        companies = [];
+        organizations = [];
+        
+        // 保存数据到localStorage
+        saveDataToStorage();
+        
+        // 初始化数据和界面，并启动自动同步
+        initializeDataAndInterface();
+      })
+      .catch(error => {
+        console.error('加载数据失败:', error);
+        document.getElementById('listContainer').innerHTML = `
+          <div class="error-message">加载数据失败: ${error.message}<br>请确保数据文件存在于data目录中</div>
+        `;
+      });
+    }
+    
+    // 统一初始化数据和界面的函数
+    function initializeDataAndInterface() {
+      // 计算标签连接数量
+      calculateTagConnections();
+      
+      // 创建图谱数据
+      createGraphData();
+      
+      // 更新列表
+      console.log('开始更新列表，当前标签页:', currentTab);
+      console.log('联系人数据示例:', persons.slice(0, 2));
+      updateList();
+      console.log('列表更新完成');
+      
+      // 初始化图谱
+      if (initGraph()) {
+        // 设置工具栏
+        setupToolbar();
+      }
+      
+      // 移除了自动同步启动逻辑
+    }
+    
+    // 移除了自动数据同步相关变量和功能
+    
+    // 移除了startAutoSync函数
+    
+    // 移除了stopAutoSync函数
+    
+    // 移除了checkForDataUpdates函数
+    
+    // 移除了syncDataFromServer函数
+    
+    // 移除了showSyncNotification函数
+    
+    // 移除了页面可见性变化时的自动同步逻辑
+     
+     // 创建图谱数据
     function createGraphData() {
       graphData.nodes = [];
       graphData.links = [];
       
-      // 添加组织节点
-      organizations.forEach(organization => {
-        graphData.nodes.push({
-          ...organization,
-          type: 'organization',
-          id: `organization-${organization._id}`
-        });
-      });
-      
-      // 添加公司节点，并连接到组织
-      companies.forEach(company => {
-        graphData.nodes.push({
-          ...company,
-          type: 'company',
-          id: `company-${company._id}`
-        });
+      // 添加标签节点（包含原来的公司、组织和技能标签）
+      tags.forEach(tag => {
+        // 根据连接数量动态设置节点大小
+        const baseSize = 8;
+        const sizeMultiplier = Math.max(1, Math.sqrt(tag.connection_count || 1));
+        const nodeSize = Math.min(baseSize * sizeMultiplier, 30); // 限制最大大小
         
-        // 如果公司属于一个或多个组织，添加连接
-        if (company.organizations && company.organizations.length > 0) {
-          company.organizations.forEach(org => {
-            graphData.links.push({
-              source: `company-${company._id}`,
-              target: `organization-${org._id}`,
-              id: `link-company-${company._id}-organization-${org._id}`
-            });
-          });
-        }
+        graphData.nodes.push({
+          ...tag,
+          type: 'tag',
+          id: `tag-${tag._id}`,
+          size: nodeSize,
+          // 统一使用灰色
+          color: 'rgb(179, 179, 179)'
+        });
       });
       
-      // 添加联系人节点和链接
+      // 添加人员节点
       let freelancerCount = 0;
-      contacts.forEach(contact => {
-        // 设置基本的联系人节点
-        let nodeType = 'contact';
-        if ((!contact.companies || contact.companies.length === 0) && 
-            (!contact.organizations || contact.organizations.length === 0)) {
+      
+      // 调试：检查 persons 数据
+      console.log('=== createGraphData 调试 ===');
+      console.log('persons 数组长度:', persons.length);
+      if (persons.length > 0) {
+        console.log('第一个 person 对象:', persons[0]);
+        console.log('第一个 person 的 description:', persons[0].description);
+      }
+      console.log('========================');
+      
+      persons.forEach(person => {
+        // 判断是否为自由职业者（没有关联任何标签）
+        let nodeType = 'person';
+        const hasAnyTags = person.tags && person.tags.length > 0;
+        
+        if (!hasAnyTags) {
           nodeType = 'freelancer';
           freelancerCount++;
         }
         
-        // 创建节点
-        graphData.nodes.push({
-          ...contact,
+        // 创建人员节点
+        const personNode = {
+          ...person,
           type: nodeType,
-          id: `contact-${contact._id}`
-        });
+          id: `person-${person._id}`,
+          size: 10, // 人员节点固定大小
+          color: 'rgb(179, 179, 179)' // 统一使用灰色
+        };
         
-        // 添加联系人到公司的链接
-        if (contact.companies && contact.companies.length > 0) {
-          contact.companies.forEach(company => {
+        // 调试：检查创建的节点
+        if (person._id === 'JackieXiao') {
+          console.log('=== JackieXiao 节点调试 ===');
+          console.log('原始 person 对象:', person);
+          console.log('创建的 personNode:', personNode);
+          console.log('personNode.description:', personNode.description);
+          console.log('========================');
+        }
+        
+        graphData.nodes.push(personNode);
+        
+        // 添加人员到标签的链接
+        if (person.tags && person.tags.length > 0) {
+          person.tags.forEach(tag => {
+            // 处理标签数据结构：可能是对象{_id, name}或简单的ID字符串
+            const tagId = typeof tag === 'object' ? tag._id : tag;
             graphData.links.push({
-              source: `contact-${contact._id}`,
-              target: `company-${company._id}`,
-              id: `link-contact-${contact._id}-company-${company._id}`
+              source: `person-${person._id}`,
+              target: `tag-${tagId}`,
+              id: `link-person-${person._id}-tag-${tagId}`
             });
           });
         }
-        
-        // 添加联系人到组织的链接
-        if (contact.organizations && contact.organizations.length > 0) {
-          contact.organizations.forEach(org => {
+      });
+      
+      // 添加标签之间的层级关系链接
+      tags.forEach(tag => {
+        if (tag.parent_tags && tag.parent_tags.length > 0) {
+          tag.parent_tags.forEach(parentTag => {
             graphData.links.push({
-              source: `contact-${contact._id}`,
-              target: `organization-${org._id}`,
-              id: `link-contact-${contact._id}-organization-${org._id}`
+              source: `tag-${tag._id}`,
+              target: `tag-${parentTag._id}`,
+              id: `link-tag-${tag._id}-parent-${parentTag._id}`,
+              type: 'hierarchy' // 标记为层级关系
             });
           });
         }
@@ -1384,82 +1919,171 @@ document.addEventListener('DOMContentLoaded', function() {
       
       console.log(`发现 ${freelancerCount} 位自由职业者`);
       console.log(`图谱数据包含 ${graphData.nodes.length} 个节点和 ${graphData.links.length} 个链接`);
+      console.log(`其中人员节点: ${persons.length} 个，标签节点: ${tags.length} 个`);
       
-      // 打印链接详情进行调试
-      if (graphData.links.length > 0) {
-        console.log('链接详情：');
-        graphData.links.slice(0, 5).forEach((link, i) => {
-          console.log(`链接 ${i+1}：从 "${link.source}" 到 "${link.target}"`);
+      // 验证所有链接的目标节点是否存在
+      const nodeIds = new Set(graphData.nodes.map(n => n.id));
+      const invalidLinks = graphData.links.filter(link => {
+        const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+        const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+        return !nodeIds.has(sourceId) || !nodeIds.has(targetId);
+      });
+      
+      if (invalidLinks.length > 0) {
+        console.warn('发现无效链接:', invalidLinks);
+        // 移除无效链接
+        graphData.links = graphData.links.filter(link => {
+          const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+          const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+          return nodeIds.has(sourceId) && nodeIds.has(targetId);
         });
+        console.log(`移除 ${invalidLinks.length} 个无效链接后，剩余 ${graphData.links.length} 个链接`);
       }
+    }
+    
+    // 获取标签颜色的辅助函数（统一标签类型后简化）
+    function getTagColorByType(type) {
+      // 所有标签统一类型，返回统一的灰色
+      return 'rgb(179, 179, 179)'; // 统一灰色
+    }
+
+    // 获取标签类型的中文显示名称（统一为标签）
+    function getTagTypeDisplayName(type) {
+      // 所有标签统一显示为'标签'
+      return '标签';
     }
     
     // 更新列表
     function updateList() {
       const container = document.getElementById('listContainer');
+      if (!container) return;
+      
+      // 创建文档片段以提高性能
+      const fragment = document.createDocumentFragment();
       
       if (currentTab === 'contacts') {
-        container.innerHTML = contacts.map(contact => {
-          // 确定正确的节点类型
-          const nodeType = (!contact.companies || contact.companies.length === 0) && 
-                         (!contact.organizations || contact.organizations.length === 0) ? 
-                         'freelancer' : 'contact';
-          // 获取关联信息
-          let subtitle = '自由职业者';
-          if (contact.companies && contact.companies.length > 0) {
-            subtitle = contact.companies.map(c => c.name).join(', ');
-          } else if (contact.organizations && contact.organizations.length > 0) {
-            subtitle = contact.organizations.map(o => o.name).join(', ');
+         // 创建标签映射以提高查找性能
+         const tagMap = new Map(tags.map(tag => [tag._id, tag]));
+         
+         persons.forEach(person => {
+           // 判断是否为自由职业者（没有关联任何标签）
+           const isFreelancer = !person.tags || person.tags.length === 0;
+           
+           // 获取人员的标签信息用于显示
+           const personTags = person.tags ? person.tags.map(tag => {
+             // 处理标签数据结构：可能是对象{_id, name}或简单的ID字符串
+             if (typeof tag === 'object') {
+               return tag; // 返回完整的标签对象
+             } else {
+               const tagObj = tagMap.get(tag);
+               return tagObj ? tagObj : null;
+             }
+           }).filter(tag => tag) : [];
+           
+           // 创建DOM元素而不是HTML字符串
+           const listItem = document.createElement('div');
+           listItem.className = 'list-item';
+           listItem.setAttribute('data-id', person._id);
+           listItem.setAttribute('data-type', isFreelancer ? 'freelancer' : 'person');
+           
+           const avatar = document.createElement('img');
+           avatar.src = person.avatar || 'https://via.placeholder.com/32';
+           avatar.alt = person.name;
+           avatar.className = 'avatar';
+           
+           const itemInfo = document.createElement('div');
+           itemInfo.className = 'item-info';
+           
+           const itemTitle = document.createElement('div');
+           itemTitle.className = 'item-title';
+           itemTitle.textContent = person.name;
+           
+           const itemSubtitle = document.createElement('div');
+           itemSubtitle.className = 'item-subtitle';
+           itemSubtitle.textContent = person.company || person.position || '';
+           
+           // 创建标签容器，使用与详情面板相同的样式
+           const tagsContainer = document.createElement('div');
+           tagsContainer.className = 'tags-container';
+           tagsContainer.style.marginTop = '4px';
+           
+           if (isFreelancer) {
+             // 显示自由职业者文本
+             const freelancerText = document.createElement('span');
+             freelancerText.className = 'connection-tag';
+             freelancerText.textContent = '自由职业者';
+             tagsContainer.appendChild(freelancerText);
+           } else if (personTags.length > 0) {
+             // 显示标签胶囊，只显示1个
+             personTags.slice(0, 1).forEach(tag => {
+               const tagElement = document.createElement('span');
+               tagElement.className = 'connection-tag';
+               tagElement.textContent = tag.name;
+               tagsContainer.appendChild(tagElement);
+             });
+           } else {
+             // 显示无标签文本
+             const noTagsText = document.createElement('span');
+             noTagsText.className = 'connection-tag';
+             noTagsText.textContent = '无标签';
+             tagsContainer.appendChild(noTagsText);
+           }
+           
+           itemInfo.appendChild(itemTitle);
+           itemInfo.appendChild(itemSubtitle);
+           itemInfo.appendChild(tagsContainer);
+           listItem.appendChild(avatar);
+           listItem.appendChild(itemInfo);
+           
+           fragment.appendChild(listItem);
+         });
+      } else if (currentTab === 'tags') {
+        // 对标签按连接数量降序排列，连接数相同时按名称字母顺序排序
+        const sortedTags = [...tags].sort((a, b) => {
+          const countA = a.connection_count || 0;
+          const countB = b.connection_count || 0;
+          
+          // 首先按连接数量降序排序
+          if (countB !== countA) {
+            return countB - countA;
           }
           
-          return `
-            <div class="list-item" data-id="${contact._id}" data-type="${nodeType}">
-              <img src="${contact.avatar || 'https://via.placeholder.com/32'}" alt="${contact.name}" class="avatar">
-              <div class="item-info">
-                <div class="item-title">${contact.name}</div>
-                <div class="item-subtitle">${subtitle}</div>
-              </div>
-            </div>
-          `;
-        }).join('');
-      } else if (currentTab === 'companies') {
-        container.innerHTML = companies.map(company => {
-          // 计算关联到该公司的联系人数量
-          const employeeCount = contacts.filter(c => 
-            c.companies && c.companies.some(comp => comp._id === company._id)
-          ).length;
+          // 连接数相同时按名称字母顺序排序
+          return a.name.localeCompare(b.name);
+        });
+        
+        sortedTags.forEach(tag => {
+          // 显示标签的连接数量信息
+          const connectionInfo = `${tag.connection_count || 0} 个连接`;
+          const typeInfo = '标签';
           
-          return `
-            <div class="list-item" data-id="${company._id}" data-type="company">
-              <div class="item-info">
-                <div class="item-title">${company.name}</div>
-                <div class="item-subtitle">员工: ${employeeCount}人</div>
-              </div>
-            </div>
-          `;
-        }).join('');
-      } else if (currentTab === 'organizations') {
-        container.innerHTML = organizations.map(org => {
-          // 计算关联到该组织的联系人和公司数量
-          const memberCount = contacts.filter(c => 
-            c.organizations && c.organizations.some(o => o._id === org._id)
-          ).length;
+          const listItem = document.createElement('div');
+          listItem.className = 'list-item';
+          listItem.setAttribute('data-id', tag._id);
+          listItem.setAttribute('data-type', 'tag');
           
-          const companyCount = companies.filter(c => 
-            c.organizations && c.organizations.some(o => o._id === org._id)
-          ).length;
+          const itemInfo = document.createElement('div');
+          itemInfo.className = 'item-info';
           
-          return `
-            <div class="list-item" data-id="${org._id}" data-type="organization">
-              <div class="item-info">
-                <div class="item-title">${org.name}</div>
-                <div class="item-subtitle">成员: ${memberCount}人, 
-                                   公司: ${companyCount}家</div>
-              </div>
-            </div>
-          `;
-        }).join('');
+          const itemTitle = document.createElement('div');
+          itemTitle.className = 'item-title';
+          itemTitle.textContent = tag.name;
+          
+          const itemSubtitle = document.createElement('div');
+          itemSubtitle.className = 'item-subtitle';
+          itemSubtitle.textContent = connectionInfo;
+          
+          itemInfo.appendChild(itemTitle);
+          itemInfo.appendChild(itemSubtitle);
+          listItem.appendChild(itemInfo);
+          
+          fragment.appendChild(listItem);
+        });
       }
+      
+      // 一次性更新DOM
+      container.innerHTML = '';
+      container.appendChild(fragment);
       
       // 添加列表项点击事件
       container.querySelectorAll('.list-item').forEach(item => {
@@ -1470,13 +2094,13 @@ document.addEventListener('DOMContentLoaded', function() {
           // 查找对应的节点
           let node = graphData.nodes.find(n => n._id === id && n.type === type);
           
-          // 如果节点未找到且type是contact，尝试以freelancer类型查找
-          if (!node && type === 'contact') {
+          // 如果节点未找到且type是person，尝试以freelancer类型查找
+          if (!node && type === 'person') {
             node = graphData.nodes.find(n => n._id === id && n.type === 'freelancer');
           }
-          // 如果节点未找到且type是freelancer，尝试以contact类型查找
+          // 如果节点未找到且type是freelancer，尝试以person类型查找
           else if (!node && type === 'freelancer') {
-            node = graphData.nodes.find(n => n._id === id && n.type === 'contact');
+            node = graphData.nodes.find(n => n._id === id && n.type === 'person');
           }
           
           if (node && graph) {
@@ -1497,51 +2121,18 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     }
     
-    // 设置搜索功能
-    function setupSearch() {
-      const searchInput = document.getElementById('searchInput');
-      
-      searchInput.addEventListener('input', () => {
-        const searchTerm = searchInput.value.toLowerCase();
-        
-        if (currentTab === 'contacts') {
-          // 搜索联系人
-          document.querySelectorAll('#listContainer .list-item').forEach(item => {
-            const name = item.querySelector('.item-title').textContent.toLowerCase();
-            const company = item.querySelector('.item-subtitle').textContent.toLowerCase();
-            
-            if (name.includes(searchTerm) || company.includes(searchTerm)) {
-              item.style.display = '';
-            } else {
-              item.style.display = 'none';
-            }
-          });
-        } else {
-          // 搜索公司
-          document.querySelectorAll('#listContainer .list-item').forEach(item => {
-            const name = item.querySelector('.item-title').textContent.toLowerCase();
-            const info = item.querySelector('.item-subtitle').textContent.toLowerCase();
-            
-            if (name.includes(searchTerm) || info.includes(searchTerm)) {
-              item.style.display = '';
-            } else {
-              item.style.display = 'none';
-            }
-          });
-        }
-      });
-    }
+    // 移除搜索功能（已优化为导航按钮布局）
     
-    // 设置标签页切换
+    // 设置导航按钮切换
     function setupTabs() {
-      document.querySelectorAll('.tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-          // 更新激活的标签页
-          document.querySelector('.tab.active').classList.remove('active');
-          tab.classList.add('active');
+      document.querySelectorAll('.nav-button').forEach(button => {
+        button.addEventListener('click', () => {
+          // 更新激活的导航按钮
+          document.querySelector('.nav-button.active').classList.remove('active');
+          button.classList.add('active');
           
           // 更新当前标签页
-          currentTab = tab.getAttribute('data-tab');
+          currentTab = button.getAttribute('data-tab');
           
           // 更新列表
           updateList();
@@ -1557,54 +2148,68 @@ document.addEventListener('DOMContentLoaded', function() {
       const modalCancel = document.getElementById('modalCancel');
       const modalSave = document.getElementById('modalSave');
       const contactForm = document.getElementById('contactForm');
-      const companyForm = document.getElementById('companyForm');
-      const organizationForm = document.getElementById('organizationForm');
       
-      // 设置模态框内的标签页切换
+      // 设置模态框内的标签页切换（简化为只有联系人表单）
       function setupModalTabs() {
-        document.querySelectorAll('.modal-tab').forEach(tab => {
-          tab.addEventListener('click', () => {
-            // 更新激活的标签页
-            document.querySelector('.modal-tab.active').classList.remove('active');
+        // 处理模态框标签页切换
+        const modalTabs = document.querySelectorAll('.modal-nav-tab');
+        const contactForm = document.getElementById('contactForm');
+        const tagForm = document.getElementById('tagForm');
+        
+        modalTabs.forEach(tab => {
+          // 移除旧的事件监听器
+          tab.removeEventListener('click', tab._modalTabClickHandler);
+          
+          // 创建新的事件处理函数
+          tab._modalTabClickHandler = () => {
+            // 如果是编辑模式，禁用标签页切换
+            if (window.isEditMode) {
+              console.log('编辑模式下禁用标签页切换');
+              return;
+            }
+            
+            // 移除所有标签页的active状态
+            modalTabs.forEach(t => t.classList.remove('active'));
+            // 激活当前点击的标签页
             tab.classList.add('active');
+            
+            // 获取要显示的表单类型
+            const formType = tab.getAttribute('data-form');
             
             // 隐藏所有表单
             contactForm.style.display = 'none';
-            companyForm.style.display = 'none';
-            organizationForm.style.display = 'none';
+            tagForm.style.display = 'none';
             
             // 显示对应的表单
-            const formId = tab.getAttribute('data-form');
-            document.getElementById(formId).style.display = 'block';
-            
-            // 根据选择的表单类型加载相应的选项
-            if (formId === 'contactForm') {
-              loadCompanyOptions();
-              loadOrganizationOptions('contactOrganizations');
-              
-              // 设置联系人表单中的多选交互
-              setupRelationSelection('contactCompanies', 'selectedCompanies');
-              setupRelationSelection('contactOrganizations', 'selectedOrganizations');
-            } else if (formId === 'companyForm') {
-              loadOrganizationOptions('companyOrganizations');
-              
-              // 设置公司表单中的多选交互
-              setupRelationSelection('companyOrganizations', 'selectedCompanyOrgs');
+            if (formType === 'contactForm') {
+              contactForm.style.display = 'block';
+              // 加载标签选项
+              loadTagOptions('contactTags');
+              setupRelationSelection('contactTags', 'selectedContactTags');
+            } else if (formType === 'tagForm') {
+              tagForm.style.display = 'block';
+              // 加载标签关联选项
+              loadTagOptions('tagParentTags');
             }
-          });
+          };
+          
+          // 添加新的事件监听器
+          tab.addEventListener('click', tab._modalTabClickHandler);
         });
         
-        // 初始化默认标签页的选择交互
-        setupRelationSelection('contactCompanies', 'selectedCompanies');
-        setupRelationSelection('contactOrganizations', 'selectedOrganizations');
+        // 初始化时加载联系人表单的标签选择交互
+        loadTagOptions('contactTags');
+        setupRelationSelection('contactTags', 'selectedContactTags');
       }
+      
+      // setupModalTabsForEdit 函数已移动到全局作用域
       
       // 添加头像预览功能
       const avatarInput = document.getElementById('contactAvatar');
       const avatarPreview = document.getElementById('avatarPreview');
       const previewImage = document.getElementById('previewImage');
       
-      if (avatarInput) {
+      if (avatarInput && avatarPreview && previewImage) {
         avatarInput.addEventListener('change', function(event) {
           if (event.target.files && event.target.files[0]) {
             const reader = new FileReader();
@@ -1628,24 +2233,11 @@ document.addEventListener('DOMContentLoaded', function() {
           // 重置表单和警告
           resetForms();
           
-          // 显示联系人表单作为默认
+          // 显示联系人表单（唯一表单）
           contactForm.style.display = 'block';
-          companyForm.style.display = 'none';
-          organizationForm.style.display = 'none';
           
-          // 设置第一个标签为激活状态
-          document.querySelectorAll('.modal-tab').forEach((tab, index) => {
-            if (index === 0) {
-              tab.classList.add('active');
-            } else {
-              tab.classList.remove('active');
-            }
-          });
-          
-          // 加载公司和组织下拉选项
-          loadCompanyOptions();
-          loadOrganizationOptions('contactOrganizations');
-          loadOrganizationOptions('companyOrganizations');
+          // 加载标签下拉选项
+          loadTagOptions('contactTags');
           
           // 显示模态框
           addModal.style.display = 'flex';
@@ -1670,25 +2262,139 @@ document.addEventListener('DOMContentLoaded', function() {
         });
       }
       
+      // 表单验证函数
+      function validateForm(form) {
+        const inputs = form.querySelectorAll('input, select, textarea');
+        let isValid = true;
+        
+        inputs.forEach(input => {
+          const formGroup = input.closest('.form-group');
+          if (!formGroup) return;
+          
+          const errorMessage = formGroup.querySelector('.error-message');
+          const successMessage = formGroup.querySelector('.success-message');
+          
+          // 清除之前的状态
+          formGroup.classList.remove('error', 'success');
+          if (errorMessage) errorMessage.classList.remove('show');
+          if (successMessage) successMessage.classList.remove('show');
+          
+          // 验证必填字段
+          if (input.hasAttribute('required') && !input.value.trim()) {
+            isValid = false;
+            formGroup.classList.add('error');
+            
+            if (!errorMessage) {
+              const error = document.createElement('div');
+              error.className = 'error-message';
+              error.innerHTML = '<i class="fas fa-exclamation-circle"></i>此字段为必填项';
+              formGroup.appendChild(error);
+            }
+            formGroup.querySelector('.error-message').classList.add('show');
+          } else if (input.value.trim()) {
+            // 验证邮箱格式
+            if (input.type === 'email' && input.value) {
+              const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+              if (!emailRegex.test(input.value)) {
+                isValid = false;
+                formGroup.classList.add('error');
+                
+                if (!errorMessage) {
+                  const error = document.createElement('div');
+                  error.className = 'error-message';
+                  error.innerHTML = '<i class="fas fa-exclamation-circle"></i>请输入有效的邮箱地址';
+                  formGroup.appendChild(error);
+                }
+                formGroup.querySelector('.error-message').classList.add('show');
+              } else {
+                formGroup.classList.add('success');
+              }
+            } else {
+              formGroup.classList.add('success');
+            }
+          }
+        });
+        
+        return isValid;
+      }
+      
+      // 设置按钮加载状态
+      function setButtonLoading(button, loading) {
+        if (loading) {
+          button.classList.add('loading');
+          button.disabled = true;
+        } else {
+          button.classList.remove('loading');
+          button.disabled = false;
+        }
+      }
+      
       // 保存按钮点击事件
       if (modalSave) {
         modalSave.onclick = () => {
-          // 获取当前激活的表单
-          const activeTab = document.querySelector('.modal-tab.active');
-          const activeForm = activeTab.getAttribute('data-form');
-          
-          if (activeForm === 'contactForm') {
-            saveContact();
-          } else if (activeForm === 'companyForm') {
-            saveCompany();
-          } else if (activeForm === 'organizationForm') {
-            saveOrganization();
+          // 检查是否为编辑模式
+          if (window.isEditMode && window.currentEditingNode) {
+            // 编辑模式：更新现有节点
+            updateNode(window.currentEditingNode);
+          } else {
+            // 添加模式：创建新节点
+            // 获取当前激活的标签页
+            const activeTab = document.querySelector('.modal-nav-tab.active');
+            const formType = activeTab ? activeTab.getAttribute('data-form') : 'contactForm';
+            
+            let form, saveFunction;
+            
+            if (formType === 'contactForm') {
+              form = document.getElementById('contactForm');
+              saveFunction = saveContact;
+            } else if (formType === 'tagForm') {
+              form = document.getElementById('tagForm');
+              saveFunction = saveTag;
+            }
+            
+            if (form && validateForm(form)) {
+              // 设置加载状态
+              setButtonLoading(modalSave, true);
+              
+              // 延迟执行保存操作，显示加载效果
+              setTimeout(() => {
+                saveFunction();
+                
+                // 重置按钮状态
+                setButtonLoading(modalSave, false);
+              }, 800);
+            }
           }
         };
       }
       
       // 设置模态框内的标签页
       setupModalTabs();
+    }
+    
+    // 通知函数
+    function showNotification(message, type = 'info') {
+      const notification = document.createElement('div');
+      notification.className = `notification ${type}`;
+      notification.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+        <span>${message}</span>
+      `;
+      
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        notification.classList.add('show');
+      }, 100);
+      
+      setTimeout(() => {
+        notification.classList.remove('show');
+        setTimeout(() => {
+          if (document.body.contains(notification)) {
+            document.body.removeChild(notification);
+          }
+        }, 400);
+      }, 3000);
     }
     
     // 重置表单
@@ -1698,58 +2404,102 @@ document.addEventListener('DOMContentLoaded', function() {
       document.getElementById('contactPhone').value = '';
       document.getElementById('contactEmail').value = '';
       document.getElementById('contactWechat').value = '';
-      document.getElementById('contactCompanies').value = '';
-      document.getElementById('contactOrganizations').value = '';
       document.getElementById('contactProfile').value = '';
-      document.getElementById('contactAvatar').value = '';
-      document.getElementById('previewImage').src = '';
-      document.getElementById('avatarPreview').style.display = 'none';
       
-      // 清空公司表单
-      document.getElementById('companyName').value = '';
-      document.getElementById('companyDescription').value = '';
-      document.getElementById('companyOrganizations').value = '';
+      // 重置头像上传组件
+      if (avatarUploader) {
+        avatarUploader.reset();
+      }
       
-      // 清空组织表单
-      document.getElementById('organizationName').value = '';
-      document.getElementById('organizationDescription').value = '';
+      // 清除全局头像变量
+      window.currentAvatarFile = null;
+      window.currentAvatarPreview = null;
+      
+      // 重置标签选择
+      const contactTags = document.getElementById('contactTags');
+      if (contactTags) {
+        contactTags.value = '';
+      }
+      
+      // 清空标签表单
+      document.getElementById('tagName').value = '';
+      document.getElementById('tagDescription').value = '';
+      
+      // 清除所有错误状态
+      if (window.errorHandler) {
+        window.errorHandler.clearAllErrors();
+      }
+      
+      // 重置标签页为联系人表单
+      const modalTabs = document.querySelectorAll('.modal-nav-tab');
+      modalTabs.forEach(tab => tab.classList.remove('active'));
+      const contactTab = document.querySelector('[data-form="contactForm"]');
+      if (contactTab) {
+        contactTab.classList.add('active');
+      }
+      
+      // 显示联系人表单，隐藏标签表单
+      document.getElementById('contactForm').style.display = 'block';
+      document.getElementById('tagForm').style.display = 'none';
+      
+      // 清除编辑模式标记
+      window.isEditMode = false;
+      window.currentEditingNode = null;
+      
+      // 重置模态框标题为添加模式
+      document.getElementById('modalTitle').textContent = '添加节点';
     }
     
-    // 加载公司下拉选项
-    function loadCompanyOptions() {
-      const companySelect = document.getElementById('contactCompanies');
-      companySelect.innerHTML = '<option value="">无</option>';
+
+    
+    // 设置关系选择的UI交互
+    function setupRelationSelection(selectId, displayId) {
+      const select = document.getElementById(selectId);
+      const display = document.getElementById(displayId);
       
-      companies.forEach(company => {
+      if (!select || !display) return;
+      
+      // 更新显示选中的标签
+      function updateDisplay() {
+        const selectedOptions = Array.from(select.selectedOptions).filter(option => option.value !== '');
+        
+        if (selectedOptions.length === 0) {
+          display.innerHTML = '<span class="text-gray-500">未选择任何标签</span>';
+        } else {
+          display.innerHTML = selectedOptions.map(option => 
+            `<span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full mr-1 mb-1">${option.textContent}</span>`
+          ).join('');
+        }
+      }
+      
+      // 监听选择变化
+      select.addEventListener('change', updateDisplay);
+      
+      // 初始化显示
+      updateDisplay();
+    }
+    
+    // 加载标签下拉选项
+    function loadTagOptions(selectId, excludeId = null) {
+      const tagSelect = document.getElementById(selectId);
+      tagSelect.innerHTML = '<option value="">无</option>';
+      
+      tags.forEach(tag => {
+        // 排除当前编辑的标签，避免自己关联自己
+        if (excludeId && tag._id === excludeId) {
+          return;
+        }
+        
         const option = document.createElement('option');
-        option.value = company._id;
-        option.textContent = company.name;
-        companySelect.appendChild(option);
+        option.value = tag._id;
+        option.textContent = tag.name;
+        tagSelect.appendChild(option);
       });
       
       // 延迟一下触发change事件，确保选项加载完成并且选中状态设置好后才触发
       setTimeout(() => {
         const event = new Event('change');
-        companySelect.dispatchEvent(event);
-      }, 0);
-    }
-    
-    // 加载组织下拉选项
-    function loadOrganizationOptions(selectId) {
-      const organizationSelect = document.getElementById(selectId);
-      organizationSelect.innerHTML = '<option value="">无</option>';
-      
-      organizations.forEach(org => {
-        const option = document.createElement('option');
-        option.value = org._id;
-        option.textContent = org.name;
-        organizationSelect.appendChild(option);
-      });
-      
-      // 延迟一下触发change事件，确保选项加载完成并且选中状态设置好后才触发
-      setTimeout(() => {
-        const event = new Event('change');
-        organizationSelect.dispatchEvent(event);
+        tagSelect.dispatchEvent(event);
       }, 0);
     }
     
@@ -1759,220 +2509,94 @@ document.addEventListener('DOMContentLoaded', function() {
       const phone = document.getElementById('contactPhone').value;
       const email = document.getElementById('contactEmail').value;
       const wechat = document.getElementById('contactWechat').value;
-      const profile = document.getElementById('contactProfile').value;
-      const avatarFile = document.getElementById('contactAvatar').files[0];
+      const description = document.getElementById('contactProfile').value;
       
-      // 获取所选公司和组织
-      const companiesSelect = document.getElementById('contactCompanies');
-      const selectedCompanyIds = Array.from(companiesSelect.selectedOptions).map(option => option.value).filter(id => id !== '');
-      
-      const organizationsSelect = document.getElementById('contactOrganizations');
-      const selectedOrganizationIds = Array.from(organizationsSelect.selectedOptions).map(option => option.value).filter(id => id !== '');
+      // 获取所选标签
+      const tagsSelect = document.getElementById('contactTags');
+      const selectedTagIds = Array.from(tagsSelect.selectedOptions).map(option => option.value).filter(id => id !== '');
       
       if (!name) {
-        alert('请输入姓名');
+        if (window.errorHandler) {
+          window.errorHandler.showError({
+            type: 'validation',
+            message: '请输入姓名'
+          });
+        }
         return;
       }
       
-      // 准备联系人数据
-      const newContact = {
-        _id: generateUUID(),
+      // 准备联系人数据（不包含_id，让后端生成）
+      const newPerson = {
         name,
         phone,
         email,
         wechat,
-        profile: profile || '暂无简介'
-      };
-      
-      // 处理头像上传
-      if (avatarFile) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-          // 使用Base64编码的图片数据
-          newContact.avatar = e.target.result;
-          
-          // 继续添加其他信息并保存
-          completeContactSave(newContact, selectedCompanyIds, selectedOrganizationIds);
-        };
-        reader.readAsDataURL(avatarFile);
-      } else {
-        // 如果没有上传头像，使用默认头像
-        newContact.avatar = './icon/common.png';
-        
-        // 继续添加其他信息并保存
-        completeContactSave(newContact, selectedCompanyIds, selectedOrganizationIds);
-      }
-    }
-    
-    // 完成联系人保存
-    function completeContactSave(newContact, companyIds, organizationIds) {
-      // 添加公司信息
-      const contactCompanies = [];
-      if (companyIds && companyIds.length > 0) {
-        companyIds.forEach(companyId => {
-          if (companyId) { // 确保不是空选项
-            const company = companies.find(c => c._id === companyId);
-            if (company) {
-              contactCompanies.push({
-                _id: company._id,
-                name: company.name
-              });
-            }
-          }
-        });
-      }
-      newContact.companies = contactCompanies;
-      
-      // 添加组织信息
-      const contactOrganizations = [];
-      if (organizationIds && organizationIds.length > 0) {
-        organizationIds.forEach(organizationId => {
-          if (organizationId) { // 确保不是空选项
-            const organization = organizations.find(o => o._id === organizationId);
-            if (organization) {
-              contactOrganizations.push({
-                _id: organization._id,
-                name: organization.name
-              });
-            }
-          }
-        });
-      }
-      newContact.organizations = contactOrganizations;
-      
-      // 发送请求保存联系人
-      fetch('/api/contacts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(newContact)
-      })
-      .then(response => response.json())
-      .then(data => {
-        // 将新联系人添加到列表
-        contacts.push(data);
-        
-        // 更新图谱数据
-        updateGraphWithNewContact(data);
-        
-        // 更新列表
-        updateList();
-        
-        // 关闭模态框
-        closeModal();
-        
-        // 重置表单
-        resetForms();
-      })
-      .catch(error => {
-        console.error('保存联系人失败:', error);
-        alert('保存联系人失败，请稍后再试');
-      });
-    }
-    
-    // 保存公司
-    function saveCompany() {
-      const name = document.getElementById('companyName').value;
-      const description = document.getElementById('companyDescription').value;
-      
-      // 获取选中的组织ID列表
-      const organizationSelect = document.getElementById('companyOrganizations');
-      const selectedOrganizations = Array.from(organizationSelect.selectedOptions).map(option => option.value);
-      
-      if (!name) {
-        alert('请输入公司名称');
-        return;
-      }
-      
-      // 构建公司数据
-      const newCompany = {
-        _id: generateUUID(),
-        name,
-        description: description || '暂无简介',
-        organizations: []
-      };
-      
-      // 添加组织信息
-      if (selectedOrganizations && selectedOrganizations.length > 0) {
-        selectedOrganizations.forEach(orgId => {
-          if (orgId) {
-            const organization = organizations.find(o => o._id === orgId);
-            if (organization) {
-              newCompany.organizations.push({
-                _id: organization._id,
-                name: organization.name
-              });
-            }
-          }
-        });
-      }
-      
-      // 发送请求保存公司
-      fetch('/api/companies', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(newCompany)
-      })
-      .then(response => response.json())
-      .then(data => {
-        // 将新公司添加到列表
-        companies.push(data);
-        
-        // 更新图谱数据
-        updateGraphWithNewCompany(data);
-        
-        // 更新列表
-        updateList();
-        
-        // 关闭模态框
-        closeModal();
-        
-        // 清空表单
-        document.getElementById('companyName').value = '';
-        document.getElementById('companyDescription').value = '';
-        document.getElementById('companyOrganizations').value = '';
-      })
-      .catch(error => {
-        console.error('保存公司失败:', error);
-        alert('保存公司失败，请稍后再试');
-      });
-    }
-    
-    // 保存组织
-    function saveOrganization() {
-      const name = document.getElementById('organizationName').value;
-      const description = document.getElementById('organizationDescription').value;
-      
-      if (!name) {
-        alert('请输入组织名称');
-        return;
-      }
-      
-      // 构建组织数据
-      const newOrganization = {
-        _id: generateUUID(),
-        name,
         description: description || '暂无简介'
       };
       
-      // 发送请求保存组织
-      fetch('/api/organizations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(newOrganization)
-      })
-      .then(response => response.json())
-      .then(data => {
-        // 将新组织添加到列表
-        organizations.push(data);
+      // 处理头像上传 - 使用新的头像上传组件
+      if (window.currentAvatarFile && window.currentAvatarPreview) {
+        // 使用处理后的头像数据
+        newPerson.avatar = window.currentAvatarPreview;
+        
+        // 继续添加其他信息并保存
+        completePersonSave(newPerson, selectedTagIds);
+      } else {
+        // 如果没有上传头像，使用默认头像
+        newPerson.avatar = './icon/common.png';
+        
+        // 继续添加其他信息并保存
+        completePersonSave(newPerson, selectedTagIds);
+      }
+    }
+    
+    // 完成人员保存
+    async function completePersonSave(newPerson, tagIds) {
+      // 添加标签信息
+      const personTags = [];
+      if (tagIds && tagIds.length > 0) {
+        tagIds.forEach(tagId => {
+          if (tagId) { // 确保不是空选项
+            const tag = tags.find(t => t._id === tagId);
+            if (tag) {
+              personTags.push({
+                _id: tag._id,
+                name: tag.name
+              });
+            }
+          }
+        });
+      }
+      newPerson.tags = personTags;
+      
+      try {
+        // 首先调用后端API保存数据
+        const response = await fetch('/api/contacts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(newPerson)
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API调用失败: ${response.status} ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        console.log('联系人API创建成功:', result);
+        
+        // API成功后，使用后端返回的数据更新本地数据
+        const savedPerson = result.data || result;
+        // 确保使用后端生成的ID
+        newPerson._id = savedPerson._id;
+        persons.push(newPerson);
+        
+        // 保存数据到localStorage作为备份
+        saveDataToStorage();
         
         // 更新图谱数据
-        updateGraphWithNewOrganization(data);
+        updateGraphWithNewPerson(newPerson);
         
         // 更新列表
         updateList();
@@ -1980,147 +2604,167 @@ document.addEventListener('DOMContentLoaded', function() {
         // 关闭模态框
         closeModal();
         
+        // 显示成功通知
+        showNotification('人员保存成功！', 'success');
+        
         // 清空表单
-        document.getElementById('organizationName').value = '';
-        document.getElementById('organizationDescription').value = '';
-      })
-      .catch(error => {
-        console.error('保存组织失败:', error);
-        alert('保存组织失败，请稍后再试');
-      });
+        resetForms();
+        
+      } catch (error) {
+        console.error('保存人员失败:', error);
+        
+        // API调用失败时，仍然保存到本地作为备份
+        persons.push(newPerson);
+        saveDataToStorage();
+        updateGraphWithNewPerson(newPerson);
+        updateList();
+        closeModal();
+        resetForms();
+        
+        // 显示错误信息
+        if (window.errorHandler) {
+          window.errorHandler.showError({
+            type: 'error',
+            message: `保存人员失败: ${error.message}。数据已保存到本地缓存。`
+          });
+        }
+      }
     }
     
-    // 更新图谱数据 - 添加新联系人
-    function updateGraphWithNewContact(contact) {
-      // 判断联系人类型
-      let nodeType = 'contact';
-      if ((!contact.companies || contact.companies.length === 0) && 
-          (!contact.organizations || contact.organizations.length === 0)) {
-        nodeType = 'freelancer';
+
+    
+    // 保存标签
+    function saveTag() {
+      const name = document.getElementById('tagName').value.trim();
+      const description = document.getElementById('tagDescription').value.trim();
+      
+      if (!name) {
+        if (window.errorHandler) {
+          window.errorHandler.showError({
+            type: 'validation',
+            message: '请输入标签名称'
+          });
+        }
+        return;
       }
       
-      // 创建新节点
-      const newNode = {
-        ...contact,
-        type: nodeType,
-        id: `contact-${contact._id}`
+      // 获取关联的标签
+      const parentTagsSelect = document.getElementById('tagParentTags');
+      const selectedParentTagIds = Array.from(parentTagsSelect.selectedOptions)
+        .map(option => option.value)
+        .filter(id => id !== '');
+      
+      // 构建父标签数据
+      const parentTags = [];
+      if (selectedParentTagIds.length > 0) {
+        selectedParentTagIds.forEach(tagId => {
+          const tag = tags.find(t => t._id === tagId);
+          if (tag) {
+            parentTags.push({
+              _id: tag._id,
+              name: tag.name
+            });
+          }
+        });
+      }
+      
+      // 构建标签数据（不包含_id，让后端生成）
+      const newTag = {
+        name,
+        description: description || '',
+        parent_tags: parentTags,
+        child_tags: [],
+        connections: [],
+        connection_count: 0,
+        color: '#6B7280'
       };
       
-      // 设置初始位置
-      if (contact.companies && contact.companies.length > 0) {
-        // 找到对应的第一个公司节点作为位置参考
-        const firstCompany = contact.companies[0];
-        const companyNode = graphData.nodes.find(n => n._id === firstCompany._id && n.type === 'company');
-        if (companyNode) {
-          const angle = Math.random() * 2 * Math.PI;
-          const radius = 30 + Math.random() * 15;
-          newNode.x = (companyNode.x || 0) + radius * Math.cos(angle);
-          newNode.y = (companyNode.y || 0) + radius * Math.sin(angle);
-        }
-        
-        // 添加到所有关联公司的连接
-        contact.companies.forEach(company => {
-          graphData.links.push({
-            source: `contact-${contact._id}`,
-            target: `company-${company._id}`,
-            id: `link-contact-${contact._id}-company-${company._id}`
+      // 调用API保存标签数据
+      saveTagWithAPI(newTag);
+      
+      // 异步保存标签的函数
+      async function saveTagWithAPI(tagData) {
+        try {
+          // 首先调用后端API保存数据
+          const response = await fetch('/api/tags', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(tagData)
           });
-        });
-      } else if (contact.organizations && contact.organizations.length > 0) {
-        // 找到对应的第一个组织节点作为位置参考
-        const firstOrganization = contact.organizations[0];
-        const organizationNode = graphData.nodes.find(n => n._id === firstOrganization._id && n.type === 'organization');
-        if (organizationNode) {
-          const angle = Math.random() * 2 * Math.PI;
-          const radius = 50 + Math.random() * 20;
-          newNode.x = (organizationNode.x || 0) + radius * Math.cos(angle);
-          newNode.y = (organizationNode.y || 0) + radius * Math.sin(angle);
+          
+          if (!response.ok) {
+            throw new Error(`API调用失败: ${response.status} ${response.statusText}`);
+          }
+          
+          const result = await response.json();
+          console.log('标签API保存成功:', result);
+          
+          // API成功后，使用后端返回的数据更新本地数据
+          const savedTag = result.data || result;
+          // 确保使用后端生成的ID
+          tagData._id = savedTag._id;
+          tags.push(tagData);
+          
+          // 保存数据到localStorage作为备份
+          saveDataToStorage();
+          
+          // 更新图谱数据
+          updateGraphWithNewTag(tagData);
+          
+          // 更新列表
+          updateList();
+          
+          // 关闭模态框
+          closeModal();
+          
+          // 显示成功通知
+          showNotification('标签保存成功！', 'success');
+          
+          // 清空表单
+          document.getElementById('tagName').value = '';
+          document.getElementById('tagDescription').value = '';
+          
+        } catch (error) {
+          console.error('保存标签失败:', error);
+          
+          // API调用失败时，仍然保存到本地数据作为备份
+          tags.push(tagData);
+          saveDataToStorage();
+          updateGraphWithNewTag(tagData);
+          updateList();
+          closeModal();
+          
+          // 清空表单
+          document.getElementById('tagName').value = '';
+          document.getElementById('tagDescription').value = '';
+          
+          // 显示错误信息
+          if (window.errorHandler) {
+            window.errorHandler.showError({
+              type: 'error',
+              message: `保存标签失败: ${error.message}。数据已保存到本地缓存。`
+            });
+          } else {
+            showNotification('标签保存失败，但已保存到本地缓存', 'warning');
+          }
         }
-        
-        // 添加到所有关联组织的连接
-        contact.organizations.forEach(org => {
-          graphData.links.push({
-            source: `contact-${contact._id}`,
-            target: `organization-${org._id}`,
-            id: `link-contact-${contact._id}-organization-${org._id}`
-          });
-        });
-      } else {
-        // 自由职业者
-        const angle = Math.random() * 2 * Math.PI;
-        const radius = 300 + Math.random() * 50;
-        newNode.x = radius * Math.cos(angle);
-        newNode.y = radius * Math.sin(angle);
       }
-      
-      // 添加节点
-      graphData.nodes.push(newNode);
-      
-      // 更新图谱
-      updateGraph();
     }
     
-    // 更新图谱数据 - 添加新公司
-    function updateGraphWithNewCompany(company) {
+    // 更新图谱数据 - 添加新标签
+    function updateGraphWithNewTag(tag) {
       // 创建新节点
       const newNode = {
-        ...company,
-        type: 'company',
-        id: `company-${company._id}`
-      };
-      
-      // 设置初始位置
-      if (company.organizations && company.organizations.length > 0) {
-        // 找到对应的第一个组织节点作为位置参考
-        const firstOrganization = company.organizations[0];
-        const organizationNode = graphData.nodes.find(n => n._id === firstOrganization._id && n.type === 'organization');
-        if (organizationNode) {
-          const companiesInOrg = companies.filter(c => 
-            c.organizations && c.organizations.some(org => org._id === firstOrganization._id)
-          );
-          const angleStep = (2 * Math.PI) / (companiesInOrg.length + 1);
-          const indexInOrg = companiesInOrg.findIndex(c => c._id === company._id);
-          const angle = indexInOrg * angleStep;
-          const radius = 150;
-          newNode.x = (organizationNode.x || 0) + radius * Math.cos(angle);
-          newNode.y = (organizationNode.y || 0) + radius * Math.sin(angle);
-        }
-        
-        // 添加到所有关联组织的连接
-        company.organizations.forEach(org => {
-          graphData.links.push({
-            source: `company-${company._id}`,
-            target: `organization-${org._id}`,
-            id: `link-company-${company._id}-organization-${org._id}`
-          });
-        });
-      } else {
-        // 不属于组织的公司
-        const angle = (companies.length % 20) * (2 * Math.PI / 20);
-        const radius = 250;
-        newNode.x = radius * Math.cos(angle);
-        newNode.y = radius * Math.sin(angle);
-      }
-      
-      // 添加节点
-      graphData.nodes.push(newNode);
-      
-      // 更新图谱
-      updateGraph();
-    }
-    
-    // 更新图谱数据 - 添加新组织
-    function updateGraphWithNewOrganization(organization) {
-      // 创建新节点
-      const newNode = {
-        ...organization,
-        type: 'organization',
-        id: `organization-${organization._id}`
+        ...tag,
+        type: 'tag',
+        id: `tag-${tag._id}`
       };
       
       // 设置初始位置 - 在画布中心附近随机位置
       const angle = Math.random() * 2 * Math.PI;
-      const radius = 200;
+      const radius = 100;
       newNode.x = radius * Math.cos(angle);
       newNode.y = radius * Math.sin(angle);
       
@@ -2131,9 +2775,56 @@ document.addEventListener('DOMContentLoaded', function() {
       updateGraph();
     }
     
+    // 更新图谱数据 - 添加新人员
+    function updateGraphWithNewPerson(person) {
+      // 判断人员类型（基于标签）
+      let nodeType = 'person';
+      const hasAnyTags = person.tags && person.tags.length > 0;
+      
+      if (!hasAnyTags) {
+        nodeType = 'freelancer';
+      }
+      
+      // 创建新节点
+      const newNode = {
+        ...person,
+        type: nodeType,
+        id: `person-${person._id}`
+      };
+      
+      // 设置初始位置 - 在画布中心附近随机位置
+      const angle = Math.random() * 2 * Math.PI;
+      const radius = 200 + Math.random() * 100;
+      newNode.x = radius * Math.cos(angle);
+      newNode.y = radius * Math.sin(angle);
+      
+      // 添加人员到标签的连接
+      if (person.tags && person.tags.length > 0) {
+        person.tags.forEach(tag => {
+          graphData.links.push({
+            source: `person-${person._id}`,
+            target: `tag-${tag._id}`,
+            id: `link-person-${person._id}-tag-${tag._id}`
+          });
+        });
+      }
+      
+      // 添加节点
+      graphData.nodes.push(newNode);
+      
+      // 更新图谱
+      updateGraph();
+    }
+    
+    // 更新图谱数据 - 添加新公司
+
+    
     // 更新图谱
     function updateGraph() {
       if (graph) {
+        // 重新创建完整的图谱数据
+        createGraphData();
+        
         // 更新图谱数据
         graph.graphData(graphData);
         
@@ -2145,20 +2836,100 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 生成UUID
-    function generateUUID() {
-      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-        const r = Math.random() * 16 | 0;
-        const v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-      });
+    // generateUUID函数已移除，统一使用后端API生成ID
+    
+    // 初始化新组件
+    function initializeComponents() {
+        try {
+            // 初始化错误处理器
+            window.errorHandler = new ErrorHandler({
+                enableGlobalErrorCapture: true,
+                enableConsoleLogging: true,
+                enableUserNotifications: true,
+                maxErrorHistory: 50,
+                retryAttempts: 3,
+                retryDelay: 1000
+            });
+            
+            // 初始化文件验证器
+            fileValidator = new FileValidator({
+                maxFileSize: 5 * 1024 * 1024, // 5MB
+                allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+            });
+            
+            // 初始化图像处理器
+            imageProcessor = new ImageProcessor({
+                quality: 0.8,
+                maxOutputSize: { width: 800, height: 800 }
+            });
+            
+            // 初始化安全增强器
+            securityEnhancer = new SecurityEnhancer({
+                maxFileSize: 5 * 1024 * 1024,
+                allowedTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+            });
+            
+            // 初始化性能优化器
+            performanceOptimizer = new PerformanceOptimizer();
+            
+            // 初始化无障碍增强器
+            accessibilityEnhancer = new AccessibilityEnhancer();
+            
+            // 初始化头像上传组件
+            const container = document.getElementById('avatarUploaderContainer');
+            if (container) {
+                avatarUploader = new AvatarUploader(container, {
+                    fileValidator,
+                    imageProcessor,
+                    securityEnhancer,
+                    performanceOptimizer,
+                    accessibilityEnhancer,
+                    errorHandler: window.errorHandler,
+                    onImageSelect: handleAvatarSelect,
+                    onUploadError: handleAvatarError
+                });
+            }
+            
+            console.log('新组件初始化完成');
+        } catch (error) {
+            console.error('组件初始化失败:', error);
+        }
+    }
+    
+    // 头像选择处理
+    function handleAvatarSelect(data) {
+        console.log('头像文件已选择:', data.file.name);
+        console.log('头像处理完成:', data.processedData);
+        
+        // 将处理后的数据存储到全局变量，供保存时使用
+        window.currentAvatarFile = data.file;
+        window.currentAvatarPreview = data.processedData.dataUrl;
+        
+        // 清除之前的错误状态
+        if (window.errorHandler) {
+            window.errorHandler.clearComponentErrors('AvatarUploader');
+            window.errorHandler.showSuccess('头像处理完成，可以保存联系人了');
+        }
+    }
+    
+
+    
+    // 头像错误处理
+    function handleAvatarError(errorInfo) {
+        console.error('头像处理错误:', errorInfo);
+        // 错误已经由ErrorHandler处理，这里只需要记录日志
+        // 如果需要额外的UI反馈，可以在这里添加
     }
     
     // 初始化
+    console.log('开始初始化页面...');
     loadData();
-    setupSearch();
     setupTabs();
     setupAddButton();
     setupMobileNav(); // 添加移动端导航初始化
+    setupToolbar(); // 确保工具栏按钮事件绑定在页面加载时就完成
+    initializeComponents(); // 初始化新组件
+    console.log('页面初始化完成');
     
     // 全局事件监听器，处理ESC按键关闭模态框
     document.addEventListener('keydown', (event) => {
@@ -2205,83 +2976,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // 更新公司
-    function updateCompany(company) {
-      const name = document.getElementById('companyName').value.trim();
-      const description = document.getElementById('companyDescription').value.trim();
-      const organizationsSelect = document.getElementById('companyOrganizations');
-      const selectedOrganizationIds = Array.from(organizationsSelect.selectedOptions).map(option => option.value);
-      
-      if (!name) {
-        alert('请输入公司名称');
-        return;
-      }
-      
-      // 构建公司更新数据
-      const updatedCompany = {
-        name,
-        description
-      };
-      
-      // 添加组织信息
-      const companyOrganizations = [];
-      if (selectedOrganizationIds && selectedOrganizationIds.length > 0) {
-        selectedOrganizationIds.forEach(organizationId => {
-          if (organizationId) { // 确保不是空选项
-            const organization = organizations.find(o => o._id === organizationId);
-            if (organization) {
-              companyOrganizations.push({
-                _id: organization._id,
-                name: organization.name
-              });
-            }
-          }
-        });
-      }
-      updatedCompany.organizations = companyOrganizations;
-      
-      // 发送更新请求
-      fetch(`/api/companies/${company._id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(updatedCompany)
-      })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('更新公司失败');
-        }
-        return response.json();
-      })
-      .then(data => {
-        console.log('公司更新成功:', data);
-        
-        // 更新本地数据
-        const index = companies.findIndex(c => c._id === company._id);
-        if (index !== -1) {
-          companies[index] = { ...companies[index], ...data };
-        }
-        
-        // 关闭模态框
-        closeModal();
-        
-        // 重新创建图表数据
-        createGraphData();
-        
-        // 更新图表
-        updateGraph();
-        
-        // 更新列表
-        updateList();
-        
-        // 刷新详情面板
-        showDetailPanel(companies[index]);
-      })
-      .catch(error => {
-        console.error('更新公司出错:', error);
-        alert('更新公司失败: ' + error.message);
-      });
-    }
+
     
     // 设置关联选择的交互
     function setupRelationSelection(selectId, tagsContainerId) {
@@ -2338,4 +3033,228 @@ document.addEventListener('DOMContentLoaded', function() {
         select.dispatchEvent(event);
       }
     }
+  
+    // 智能搜索功能
+    function setupSmartSearch() {
+      const searchInput = document.getElementById('searchInput');
+      const searchButton = document.getElementById('searchButton');
+      const searchResults = document.getElementById('searchResults');
+      const searchResultsContent = document.getElementById('searchResultsContent');
+      const searchResultsClose = document.getElementById('searchResultsClose');
+      const searchLoading = document.getElementById('searchLoading');
+      
+      // 搜索函数
+      // 缓存搜索上下文数据
+      let cachedContextData = null;
+      let lastDataUpdate = 0;
+      
+      function getContextData() {
+        const currentTime = Date.now();
+        // 如果缓存存在且数据在5分钟内没有更新，使用缓存
+        if (cachedContextData && (currentTime - lastDataUpdate) < 300000) {
+          return cachedContextData;
+        }
+        
+        // 创建标签映射以提高性能
+        const tagMap = new Map(tags.map(tag => [tag._id, tag]));
+        
+        cachedContextData = {
+          persons: persons.map(person => ({
+            name: person.name,
+            phone: person.phone,
+            email: person.email,
+            wechat: person.wechat,
+            profile: person.profile,
+            tags: person.tags ? person.tags.map(tagId => {
+              const tag = tagMap.get(tagId);
+              return tag ? tag.name : '';
+            }).filter(name => name) : []
+          })),
+          tags: tags.map(tag => ({
+            name: tag.name,
+            description: tag.description
+          }))
+        };
+        
+        lastDataUpdate = currentTime;
+        return cachedContextData;
+      }
+      
+      async function performSearch(query) {
+        if (!query.trim()) return;
+        
+        // 显示加载状态
+        searchLoading.style.display = 'flex';
+        searchResults.style.display = 'none';
+        
+        try {
+          // 使用缓存的上下文数据
+          const contextData = getContextData();
+          
+          // 调用大模型API
+          const response = await callLLMAPI(query, contextData);
+          
+          // 隐藏加载状态
+          searchLoading.style.display = 'none';
+          
+          // 显示搜索结果
+          searchResultsContent.innerHTML = formatSearchResult(response);
+          searchResults.style.display = 'block';
+          
+        } catch (error) {
+          console.error('搜索失败:', error);
+          searchLoading.style.display = 'none';
+          
+          // 显示错误信息
+          searchResultsContent.innerHTML = `
+            <div style="color: #ff6b6b; text-align: center; padding: 20px;">
+              <i class="bi bi-exclamation-triangle" style="font-size: 24px; margin-bottom: 10px;"></i>
+              <p>搜索失败，请稍后重试</p>
+              <p style="font-size: 14px; color: var(--text-muted);">${error.message}</p>
+            </div>
+          `;
+          searchResults.style.display = 'block';
+        }
+      }
+      
+      // 调用大模型API的函数
+      async function callLLMAPI(query, contextData) {
+        // 这里使用一个模拟的API调用，实际项目中需要替换为真实的大模型API
+        // 比如OpenAI GPT、Claude、或者其他大模型服务
+        
+        // 模拟API响应
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            // 简单的关键词匹配逻辑作为演示
+            const result = analyzeQuery(query, contextData);
+            resolve(result);
+          }, 1500); // 模拟网络延迟
+        });
+        
+        // 真实API调用示例（需要配置API密钥）:
+        /*
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer YOUR_API_KEY'
+          },
+          body: JSON.stringify({
+            model: 'gpt-3.5-turbo',
+            messages: [
+              {
+                role: 'system',
+                content: `你是一个智能助手，专门帮助用户查询联系人信息。以下是联系人数据：\n${JSON.stringify(contextData, null, 2)}`
+              },
+              {
+                role: 'user',
+                content: query
+              }
+            ],
+            max_tokens: 500,
+            temperature: 0.7
+          })
+        });
+        
+        const data = await response.json();
+        return data.choices[0].message.content;
+        */
+      }
+      
+      // 简单的查询分析函数（演示用）
+      function analyzeQuery(query, contextData) {
+        const lowerQuery = query.toLowerCase();
+        
+        // 检查是否询问特定标签的人员
+        if (lowerQuery.includes('黑客松') || lowerQuery.includes('独立开发者')) {
+          const developers = contextData.persons.filter(contact => 
+            contact.tags.some(tag => 
+              tag.toLowerCase().includes('开发') || 
+              tag.toLowerCase().includes('黑客') ||
+              tag.toLowerCase().includes('独立')
+            ) ||
+            contact.profile?.toLowerCase().includes('开发') ||
+            contact.profile?.toLowerCase().includes('黑客')
+          );
+          
+          if (developers.length > 0) {
+            return `根据您的查询，我找到了以下可能参与黑客松或独立开发的人员：\n\n${developers.map(dev => 
+              `• **${dev.name}**\n  ${dev.profile ? `简介：${dev.profile}` : ''}\n  ${dev.tags.length > 0 ? `标签：${dev.tags.join(', ')}` : ''}`
+            ).join('\n\n')}`;
+          } else {
+            return '抱歉，在当前联系人中没有找到明确标注为黑客松参与者或独立开发者的人员。';
+          }
+        }
+        
+
+        
+        // 检查是否询问联系方式
+        if (lowerQuery.includes('联系方式') || lowerQuery.includes('电话') || lowerQuery.includes('邮箱')) {
+          const nameMatch = lowerQuery.match(/(.+?)的联系方式|(.+?)的电话|(.+?)的邮箱/);
+          if (nameMatch) {
+            const name = nameMatch[1] || nameMatch[2] || nameMatch[3];
+            const person = contextData.persons.find(contact => 
+              contact.name.toLowerCase().includes(name.toLowerCase())
+            );
+            
+            if (person) {
+              return `${person.name}的联系方式：\n\n${person.phone ? `📞 电话：${person.phone}` : ''}\n${person.email ? `📧 邮箱：${person.email}` : ''}\n${person.wechat ? `💬 微信：${person.wechat}` : ''}`;
+            } else {
+              return `抱歉，没有找到名为"${name}"的联系人。`;
+            }
+          }
+        }
+        
+        // 默认回复
+        return `我理解您想查询"${query}"，但我需要更具体的信息才能帮助您。\n\n您可以尝试这样问：\n• "周周黑客松的独立开发者都有谁？"\n• "张三的联系方式是什么？"\n• "有哪些人标记了'技术'标签？"`;
+      }
+      
+      // 格式化搜索结果
+      function formatSearchResult(result) {
+        // 将Markdown格式转换为HTML
+        return result
+          .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+          .replace(/• /g, '• ')
+          .replace(/\n\n/g, '</p><p>')
+          .replace(/\n/g, '<br>')
+          .replace(/^/, '<p>')
+          .replace(/$/, '</p>');
+      }
+      
+      // 绑定事件监听器
+      searchButton.addEventListener('click', () => {
+        const query = searchInput.value.trim();
+        if (query) {
+          performSearch(query);
+        }
+      });
+      
+      searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          const query = searchInput.value.trim();
+          if (query) {
+            performSearch(query);
+          }
+        }
+      });
+      
+      searchResultsClose.addEventListener('click', () => {
+        searchResults.style.display = 'none';
+      });
+      
+      // 点击搜索结果外部关闭
+      document.addEventListener('click', (e) => {
+        if (!searchResults.contains(e.target) && 
+            !searchInput.contains(e.target) && 
+            !searchButton.contains(e.target)) {
+          searchResults.style.display = 'none';
+        }
+      });
+    }
+    
+    // 初始化搜索功能
+    setupSmartSearch();
+    
+    // 初始化标签关联选择器
+    setupRelationSelection('tagParentTags', 'selectedTagParentTags');
   });

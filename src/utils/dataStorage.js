@@ -1,110 +1,236 @@
-const fs = require('fs').promises;
+const fs = require('fs');
 const path = require('path');
 const dbConfig = require('../config/database');
 
 const DATA_DIR = dbConfig.dataDir;
-const COMPANIES_FILE = path.join(DATA_DIR, dbConfig.companiesFile);
-const CONTACTS_FILE = path.join(DATA_DIR, dbConfig.contactsFile);
-const ORGANIZATIONS_FILE = path.join(DATA_DIR, dbConfig.organizationsFile);
+const DATA_FILES = {
+  persons: dbConfig.contactsFile,
+  companies: dbConfig.companiesFile,
+  organizations: dbConfig.organizationsFile,
+  tags: dbConfig.tagsFile
+};
 
 // 确保数据目录存在
-async function ensureDataDir() {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    console.log('数据目录已创建或已存在');
-  } catch (error) {
-    console.error('创建数据目录失败:', error);
-    throw error;
-  }
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// 保存数据到文件
-async function saveData(companies, contacts, organizations) {
-  try {
-    await ensureDataDir();
-    
-    await fs.writeFile(COMPANIES_FILE, JSON.stringify(companies, null, 2), 'utf8');
-    console.log('公司数据已保存到', COMPANIES_FILE);
-    
-    await fs.writeFile(CONTACTS_FILE, JSON.stringify(contacts, null, 2), 'utf8');
-    console.log('联系人数据已保存到', CONTACTS_FILE);
-    
-    await fs.writeFile(ORGANIZATIONS_FILE, JSON.stringify(organizations, null, 2), 'utf8');
-    console.log('组织数据已保存到', ORGANIZATIONS_FILE);
-    
-    return true;
-  } catch (error) {
-    console.error('保存数据失败:', error);
-    return false;
-  }
-}
+// 批量写入队列和防抖机制
+const writeQueue = new Map();
+const writeTimeouts = new Map();
+const WRITE_DEBOUNCE_MS = 500; // 500ms防抖
 
-// 从文件加载数据
-async function loadData() {
+/**
+ * 异步加载数据文件
+ * @param {string} type - 数据类型
+ * @returns {Promise<Array>} 数据数组
+ */
+const loadDataFromFile = async (type) => {
+  const filePath = path.join(DATA_DIR, DATA_FILES[type]);
   try {
-    await ensureDataDir();
-    
-    // 检查文件是否存在
-    const [companiesExist, contactsExist, organizationsExist] = await Promise.all([
-      fs.access(COMPANIES_FILE).then(() => true).catch(() => false),
-      fs.access(CONTACTS_FILE).then(() => true).catch(() => false),
-      fs.access(ORGANIZATIONS_FILE).then(() => true).catch(() => false)
-    ]);
-    
-    // 如果文件不存在，返回空数组
-    const companies = companiesExist ? 
-      JSON.parse(await fs.readFile(COMPANIES_FILE, 'utf8')) : [];
-    
-    const contacts = contactsExist ? 
-      JSON.parse(await fs.readFile(CONTACTS_FILE, 'utf8')) : [];
-    
-    const organizations = organizationsExist ? 
-      JSON.parse(await fs.readFile(ORGANIZATIONS_FILE, 'utf8')) : [];
-    
-    console.log(`成功加载 ${companies.length} 家公司, ${organizations.length} 个组织和 ${contacts.length} 位联系人的数据`);
-    return { companies, contacts, organizations };
+    const data = await fs.promises.readFile(filePath, 'utf8');
+    const parsed = JSON.parse(data);
+    console.log(`成功加载 ${type} 数据: ${Array.isArray(parsed) ? parsed.length : 0} 条记录`);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
-    console.error('加载数据失败:', error);
-    return { companies: [], contacts: [], organizations: [] };
-  }
-}
-
-// 同步版本的文件操作
-const syncFileOps = {
-  saveData: (companies, contacts, organizations) => {
-    const fs = require('fs');
-    
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (error.code === 'ENOENT') {
+      console.log(`文件 ${filePath} 不存在，返回空数组`);
+      return [];
     }
-    
-    fs.writeFileSync(COMPANIES_FILE, JSON.stringify(companies, null, 2));
-    fs.writeFileSync(CONTACTS_FILE, JSON.stringify(contacts, null, 2));
-    fs.writeFileSync(ORGANIZATIONS_FILE, JSON.stringify(organizations, null, 2));
-  },
-  
-  loadData: () => {
-    const fs = require('fs');
-    
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    
-    const companies = fs.existsSync(COMPANIES_FILE) ? 
-      JSON.parse(fs.readFileSync(COMPANIES_FILE, 'utf8')) : [];
-    
-    const contacts = fs.existsSync(CONTACTS_FILE) ? 
-      JSON.parse(fs.readFileSync(CONTACTS_FILE, 'utf8')) : [];
-    
-    const organizations = fs.existsSync(ORGANIZATIONS_FILE) ? 
-      JSON.parse(fs.readFileSync(ORGANIZATIONS_FILE, 'utf8')) : [];
-    
-    return { companies, contacts, organizations };
+    console.error(`读取文件 ${filePath} 失败:`, error.message);
+    throw new Error(`读取${type}数据失败: ${error.message}`);
   }
 };
 
-module.exports = { 
-  saveData, 
-  loadData,
+/**
+ * 异步保存数据文件（带防抖）
+ * @param {string} type - 数据类型
+ * @param {Array} data - 要保存的数据
+ * @returns {Promise<void>}
+ */
+const saveDataToFile = async (type, data) => {
+  return new Promise((resolve, reject) => {
+    // 将数据加入队列
+    writeQueue.set(type, data);
+    
+    // 清除之前的定时器
+    if (writeTimeouts.has(type)) {
+      clearTimeout(writeTimeouts.get(type));
+    }
+    
+    // 设置新的防抖定时器
+    const timeout = setTimeout(async () => {
+      try {
+        const dataToWrite = writeQueue.get(type);
+        if (!dataToWrite) {
+          resolve();
+          return;
+        }
+        
+        await executeWrite(type, dataToWrite);
+        writeQueue.delete(type);
+        writeTimeouts.delete(type);
+        resolve();
+      } catch (error) {
+        writeQueue.delete(type);
+        writeTimeouts.delete(type);
+        reject(error);
+      }
+    }, WRITE_DEBOUNCE_MS);
+    
+    writeTimeouts.set(type, timeout);
+  });
+};
+
+/**
+ * 立即保存数据文件（不使用防抖）
+ * @param {string} type - 数据类型
+ * @param {Array} data - 要保存的数据
+ * @returns {Promise<void>}
+ */
+const saveDataToFileImmediate = async (type, data) => {
+  // 取消防抖写入
+  if (writeTimeouts.has(type)) {
+    clearTimeout(writeTimeouts.get(type));
+    writeTimeouts.delete(type);
+  }
+  writeQueue.delete(type);
+  
+  await executeWrite(type, data);
+};
+
+/**
+ * 执行实际的文件写入操作
+ * @param {string} type - 数据类型
+ * @param {Array} data - 要保存的数据
+ * @returns {Promise<void>}
+ */
+const executeWrite = async (type, data) => {
+  const filePath = path.join(DATA_DIR, DATA_FILES[type]);
+  
+  try {
+    // 验证数据格式
+    if (!Array.isArray(data)) {
+      throw new Error(`${type}数据必须是数组格式`);
+    }
+    
+    // 创建备份
+    const backupPath = `${filePath}.backup`;
+    if (fs.existsSync(filePath)) {
+      await fs.promises.copyFile(filePath, backupPath);
+    }
+    
+    // 写入数据
+    const jsonData = JSON.stringify(data, null, 2);
+    await fs.promises.writeFile(filePath, jsonData, 'utf8');
+    
+    console.log(`${type}数据已保存: ${data.length} 条记录 -> ${filePath}`);
+    
+    // 删除备份文件（保存成功后）
+    if (fs.existsSync(backupPath)) {
+      await fs.promises.unlink(backupPath);
+    }
+  } catch (error) {
+    console.error(`保存${type}数据到 ${filePath} 失败:`, error.message);
+    
+    // 尝试恢复备份
+    const backupPath = `${filePath}.backup`;
+    if (fs.existsSync(backupPath)) {
+      try {
+        await fs.promises.copyFile(backupPath, filePath);
+        console.log(`已从备份恢复 ${filePath}`);
+      } catch (restoreError) {
+        console.error(`恢复备份失败:`, restoreError.message);
+      }
+    }
+    
+    throw new Error(`保存${type}数据失败: ${error.message}`);
+  }
+};
+
+/**
+ * 批量保存所有待写入的数据
+ * @returns {Promise<void>}
+ */
+const flushAllWrites = async () => {
+  const writePromises = [];
+  
+  for (const [type, data] of writeQueue.entries()) {
+    // 清除定时器
+    if (writeTimeouts.has(type)) {
+      clearTimeout(writeTimeouts.get(type));
+      writeTimeouts.delete(type);
+    }
+    
+    writePromises.push(executeWrite(type, data));
+  }
+  
+  writeQueue.clear();
+  await Promise.all(writePromises);
+};
+
+// 同步文件操作（保持向后兼容，但不推荐使用）
+const syncFileOps = {
+  loadData: (type) => {
+    console.warn('警告: 使用同步文件操作可能影响性能，建议使用异步版本');
+    const filePath = path.join(DATA_DIR, DATA_FILES[type]);
+    try {
+      const data = fs.readFileSync(filePath, 'utf8');
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        console.log(`文件 ${filePath} 不存在，返回空数组`);
+        return [];
+      }
+      console.error(`读取文件 ${filePath} 失败:`, error.message);
+      return [];
+    }
+  },
+  
+  saveData: (type, data) => {
+    console.warn('警告: 使用同步文件操作可能影响性能，建议使用异步版本');
+    const filePath = path.join(DATA_DIR, DATA_FILES[type]);
+    try {
+      if (!Array.isArray(data)) {
+        throw new Error(`${type}数据必须是数组格式`);
+      }
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+      console.log(`${type}数据已同步保存: ${data.length} 条记录`);
+    } catch (error) {
+      console.error(`同步保存${type}数据失败:`, error.message);
+      throw error;
+    }
+  }
+};
+
+// 进程退出时确保所有数据都已保存
+process.on('SIGINT', async () => {
+  console.log('正在保存所有待写入数据...');
+  try {
+    await flushAllWrites();
+    console.log('数据保存完成');
+  } catch (error) {
+    console.error('保存数据时出错:', error.message);
+  }
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('正在保存所有待写入数据...');
+  try {
+    await flushAllWrites();
+    console.log('数据保存完成');
+  } catch (error) {
+    console.error('保存数据时出错:', error.message);
+  }
+  process.exit(0);
+});
+
+module.exports = {
+  loadDataFromFile,
+  saveDataToFile,
+  saveDataToFileImmediate,
+  flushAllWrites,
   syncFileOps
-}; 
+};

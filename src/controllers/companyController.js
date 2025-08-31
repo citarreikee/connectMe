@@ -3,9 +3,9 @@ const { Company } = require('../models');
 // 公司控制器
 const companyController = {
   // 获取所有公司
-  getAllCompanies: (req, res) => {
+  getAllCompanies: async (req, res) => {
     try {
-      const companies = Company.getAll();
+      const companies = await Company.getAllCompanies();
       res.json(companies);
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -13,9 +13,9 @@ const companyController = {
   },
 
   // 获取单个公司
-  getCompanyById: (req, res) => {
+  getCompanyById: async (req, res) => {
     try {
-      const company = Company.getById(req.params.id);
+      const company = await Company.getCompanyById(req.params.id);
       if (!company) {
         return res.status(404).json({ error: '公司不存在' });
       }
@@ -26,9 +26,9 @@ const companyController = {
   },
 
   // 创建公司
-  createCompany: (req, res) => {
+  createCompany: async (req, res) => {
     try {
-      const newCompany = Company.create(req.body);
+      const newCompany = await Company.createCompany(req.body);
       res.status(201).json(newCompany);
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -36,30 +36,30 @@ const companyController = {
   },
 
   // 更新公司
-  updateCompany: (req, res) => {
+  updateCompany: async (req, res) => {
     try {
-      const updatedCompany = Company.update(req.params.id, req.body);
-      if (!updatedCompany) {
-        return res.status(404).json({ error: '公司不存在' });
-      }
+      const updatedCompany = await Company.updateCompany(req.params.id, req.body);
       res.json(updatedCompany);
     } catch (error) {
+      if (error.message === '公司不存在') {
+        return res.status(404).json({ error: error.message });
+      }
       res.status(400).json({ error: error.message });
     }
   },
 
   // 删除公司
-  deleteCompany: (req, res) => {
+  deleteCompany: async (req, res) => {
     try {
-      const deleted = Company.delete(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ error: '公司不存在' });
-      }
+      await Company.deleteCompany(req.params.id);
       res.json({ message: '公司已删除' });
     } catch (error) {
+      if (error.message === '公司不存在') {
+        return res.status(404).json({ error: error.message });
+      }
       res.status(500).json({ error: error.message });
     }
   }
 };
 
-module.exports = companyController; 
+module.exports = companyController;
